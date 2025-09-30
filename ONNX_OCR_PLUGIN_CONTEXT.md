@@ -256,6 +256,103 @@ dependencies {
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 ```
 
+## Testing & Verification Workflow
+
+### Quick Testing via Sample App
+
+The example app is configured for easy testing and verification of OCR functionality:
+
+#### Running Tests
+
+**For Developers:**
+```bash
+cd example/
+flutter run
+```
+
+**For AI Agents:**
+Use a subagent to run the app and report findings. The subagent should:
+1. Run `flutter run` in the example directory
+2. Monitor the console output for OCR results
+3. Report back only the key findings (detected text vs ground truth)
+4. Do NOT include full logs in the context (to prevent overload)
+
+#### What Happens Automatically
+
+1. **Auto-load First Test Image** (3 second delay)
+   - App loads `meme_love_you.jpeg` on startup
+   - Waits 3 seconds for ONNX models to initialize
+   - Automatically runs OCR
+
+2. **Console Output Format**
+   ```
+   ========================================
+   Loaded test image: meme_love_you.jpeg
+   ========================================
+
+   ⏳ Waiting 3 seconds for models to initialize...
+
+   ========== OCR RESULTS ==========
+   Total regions detected: 3
+
+   Recognized texts:
+   1. [95.2%] Nobody:
+   2. [88.7%] Me randomly when I love you
+   3. [92.3%] Source: @BeamCardShop
+   ================================
+
+   Ground truth texts for meme_love_you.jpeg:
+     1. Nobody:
+     2. Me randomly when I love you
+     3. Source: @BeamCardShop
+   ```
+
+3. **What to Look For**
+   - Number of detected regions matches ground truth
+   - Recognized text matches ground truth text
+   - Confidence scores (should be >80% for good detection)
+   - Any missing or truncated words
+   - Any OCR errors or exceptions
+
+#### Testing Multiple Images
+
+By default, only the first image is tested. To cycle through all 10 test images:
+
+1. **Enable Auto-Cycle Feature Flag** (main.dart:14)
+   ```dart
+   const bool AUTO_CYCLE_TEST_IMAGES = true;  // Change to true
+   ```
+
+2. **Run Again**
+   - Each image will be tested automatically
+   - 10 second interval between images
+   - All results logged to console
+
+**Note for AI Agents:** Only enable auto-cycle if user specifically requests testing all images. For routine verification, testing the first image is sufficient.
+
+#### Available Test Images
+
+Located in `example/assets/test_ocr/`:
+1. `meme_love_you.jpeg` - Pokemon meme (default)
+2. `meme_perfect_couple.jpeg` - Stick figure temperature meme
+3. `meme_ice_cream.jpeg` - Ice cream meme
+4. `meme_waking_up.jpeg` - Waking up meme
+5. `mail_screenshot.jpeg` - Dutch email conversation
+6. `ocr_test.jpeg` - Vietnamese restaurant receipt
+7. `screen_photos.jpeg` - Dutch FAQ text
+8. `text_photos.jpeg` - Dutch poetry on sign
+9. `receipt_swiggy.jpg` - Indian food delivery receipt
+10. `payment_transactions.png` - Payment app screenshot
+
+Ground truth for all images is in `example/assets/test_ocr/ground_truth.json`.
+
+#### Manual Navigation
+
+- Use arrow buttons (← →) in the app to cycle through test images
+- Camera/Gallery buttons to test with custom images
+- "Run OCR" button to re-process current image
+- Toggle overlay to see detected text boxes visually
+
 ## Development Tips
 
 1. **Debugging OCR Results**:

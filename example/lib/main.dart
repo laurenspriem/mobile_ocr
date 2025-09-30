@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -7,6 +9,10 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:onnx_ocr_plugin/onnx_ocr_plugin.dart';
 import 'package:image_picker/image_picker.dart';
+
+// Feature flag: Set to true to enable automatic cycling through test images
+const bool AUTO_CYCLE_TEST_IMAGES = false;
+const int AUTO_CYCLE_INTERVAL_SECONDS = 10;
 
 void main() {
   runApp(const MyApp());
@@ -48,16 +54,69 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   String _platformVersion = 'Unknown';
   Size? _imageOriginalSize;
 
+  // Test images list (starting with meme images)
+  final List<String> _testImages = [
+    'assets/test_ocr/meme_love_you.jpeg',
+    'assets/test_ocr/meme_perfect_couple.jpeg',
+    'assets/test_ocr/meme_ice_cream.jpeg',
+    'assets/test_ocr/meme_waking_up.jpeg',
+    'assets/test_ocr/mail_screenshot.jpeg',
+    'assets/test_ocr/ocr_test.jpeg',
+    'assets/test_ocr/screen_photos.jpeg',
+    'assets/test_ocr/text_photos.jpeg',
+    'assets/test_ocr/receipt_swiggy.jpg',
+    'assets/test_ocr/payment_transactions.png',
+  ];
+
+  int _currentTestImageIndex = 0;
+  Map<String, dynamic>? _groundTruth;
+  Timer? _autoCycleTimer;
+  bool _isFirstImageLoad = true;
+
   @override
   void initState() {
     super.initState();
     initPlatformState();
+    _loadGroundTruth();
+    _loadTestImage();
+
+    // Start auto-cycle timer if feature is enabled
+    if (AUTO_CYCLE_TEST_IMAGES) {
+      print(
+        '\n🔄 AUTO-CYCLE MODE ENABLED: Images will cycle every $AUTO_CYCLE_INTERVAL_SECONDS seconds\n',
+      );
+      _startAutoCycleTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoCycleTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startAutoCycleTimer() {
+    _autoCycleTimer?.cancel();
+    _autoCycleTimer = Timer.periodic(
+      Duration(seconds: AUTO_CYCLE_INTERVAL_SECONDS),
+      (timer) {
+        if (!_isProcessing) {
+          _nextTestImage();
+        }
+      },
+    );
+  }
+
+  void _stopAutoCycleTimer() {
+    _autoCycleTimer?.cancel();
+    _autoCycleTimer = null;
   }
 
   Future<void> initPlatformState() async {
     String platformVersion;
     try {
-      platformVersion = await _ocrPlugin.getPlatformVersion() ?? 'Unknown platform version';
+      platformVersion =
+          await _ocrPlugin.getPlatformVersion() ?? 'Unknown platform version';
     } on PlatformException {
       platformVersion = 'Failed to get platform version.';
     }
@@ -69,7 +128,102 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     });
   }
 
+  Future<void> _loadGroundTruth() async {
+    try {
+      final jsonString = await rootBundle.loadString(
+        'assets/test_ocr/ground_truth.json',
+      );
+      _groundTruth = json.decode(jsonString);
+    } catch (e) {
+      print('Failed to load ground truth: $e');
+    }
+  }
+
+  Future<void> _loadTestImage() async {
+    if (_currentTestImageIndex >= _testImages.length) return;
+
+    try {
+      final assetPath = _testImages[_currentTestImageIndex];
+      final bytes = await rootBundle.load(assetPath);
+      final imageBytes = bytes.buffer.asUint8List();
+
+      // Decode image to get dimensions
+      final codec = await ui.instantiateImageCodec(imageBytes);
+      final frame = await codec.getNextFrame();
+      final uiImage = frame.image;
+
+      setState(() {
+        _imageFile = null; // Not from file picker
+        _imageBytes = imageBytes;
+        _imageOriginalSize = Size(
+          uiImage.width.toDouble(),
+          uiImage.height.toDouble(),
+        );
+        _ocrResult = null;
+        _showTextOverlay = false;
+        _selectedText = null;
+      });
+
+      uiImage.dispose();
+
+      print('\n========================================');
+      print('Loaded test image: ${assetPath.split('/').last}');
+      print('========================================\n');
+
+      // Wait 3 seconds before processing the first image to allow models to load
+      if (_isFirstImageLoad) {
+        print('⏳ Waiting 3 seconds for models to initialize...\n');
+        await Future.delayed(const Duration(seconds: 3));
+        _isFirstImageLoad = false;
+      }
+
+      // Auto-run OCR
+      await _performOcr();
+    } catch (e) {
+      print('Failed to load test image: $e');
+      _showError('Failed to load test image: $e');
+    }
+  }
+
+  void _nextTestImage() {
+    setState(() {
+      _currentTestImageIndex =
+          (_currentTestImageIndex + 1) % _testImages.length;
+    });
+    _loadTestImage();
+  }
+
+  void _previousTestImage() {
+    // Stop auto-cycle when user manually navigates
+    if (AUTO_CYCLE_TEST_IMAGES && _autoCycleTimer != null) {
+      _stopAutoCycleTimer();
+      print('⏸️  Auto-cycle stopped (manual navigation)');
+    }
+
+    setState(() {
+      _currentTestImageIndex =
+          (_currentTestImageIndex - 1 + _testImages.length) %
+          _testImages.length;
+    });
+    _loadTestImage();
+  }
+
+  void _manualNextTestImage() {
+    // Stop auto-cycle when user manually navigates
+    if (AUTO_CYCLE_TEST_IMAGES && _autoCycleTimer != null) {
+      _stopAutoCycleTimer();
+      print('⏸️  Auto-cycle stopped (manual navigation)');
+    }
+    _nextTestImage();
+  }
+
   Future<void> _pickImage(ImageSource source) async {
+    // Stop auto-cycle when user manually picks an image
+    if (AUTO_CYCLE_TEST_IMAGES) {
+      _stopAutoCycleTimer();
+      print('⏸️  Auto-cycle stopped (manual image selection)');
+    }
+
     try {
       final XFile? image = await _picker.pickImage(source: source);
       if (image == null) return;
@@ -84,7 +238,10 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       setState(() {
         _imageFile = File(image.path);
         _imageBytes = bytes;
-        _imageOriginalSize = Size(uiImage.width.toDouble(), uiImage.height.toDouble());
+        _imageOriginalSize = Size(
+          uiImage.width.toDouble(),
+          uiImage.height.toDouble(),
+        );
         _ocrResult = null;
         _showTextOverlay = false;
         _selectedText = null;
@@ -116,10 +273,37 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
 
       if (result.isEmpty) {
         _showMessage('No text detected in the image');
+        print('No text detected');
       } else {
         _showMessage('Detected ${result.texts.length} text region(s)');
+
+        // Log recognized texts
+        print('\n========== OCR RESULTS ==========');
+        print('Total regions detected: ${result.texts.length}');
+        print('\nRecognized texts:');
+        for (int i = 0; i < result.texts.length; i++) {
+          print(
+            '${i + 1}. [${(result.scores[i] * 100).toStringAsFixed(1)}%] ${result.texts[i]}',
+          );
+        }
+        print('================================\n');
+      }
+
+      // Always show ground truth if available
+      final currentImageName = _testImages[_currentTestImageIndex]
+          .split('/')
+          .last;
+      if (_groundTruth != null && _groundTruth!.containsKey(currentImageName)) {
+        final groundTruthTexts =
+            _groundTruth![currentImageName]['texts'] as List;
+        print('Ground truth texts for $currentImageName:');
+        for (int i = 0; i < groundTruthTexts.length; i++) {
+          print('  ${i + 1}. ${groundTruthTexts[i]}');
+        }
+        print('');
       }
     } catch (e) {
+      print('OCR ERROR: $e');
       _showError('OCR failed: $e');
     } finally {
       setState(() {
@@ -137,8 +321,13 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     });
   }
 
-  void _handleTapOnImage(TapDownDetails details, RenderBox renderBox, BoxFit fit) {
-    if (_ocrResult == null || !_showTextOverlay || _imageOriginalSize == null) return;
+  void _handleTapOnImage(
+    TapDownDetails details,
+    RenderBox renderBox,
+    BoxFit fit,
+  ) {
+    if (_ocrResult == null || !_showTextOverlay || _imageOriginalSize == null)
+      return;
 
     // Get the actual position and size of the displayed image
     final localPosition = renderBox.globalToLocal(details.globalPosition);
@@ -249,7 +438,9 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                     icon: const Icon(Icons.copy, size: 20),
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: text));
-                      _showMessage('Copied: ${text.substring(0, text.length.clamp(0, 30))}...');
+                      _showMessage(
+                        'Copied: ${text.substring(0, text.length.clamp(0, 30))}...',
+                      );
                     },
                   ),
                 ),
@@ -277,18 +468,15 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _showError(String error) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(error),
-        backgroundColor: Colors.red,
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.red));
   }
 
   @override
@@ -309,14 +497,18 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
             ),
           ),
           Expanded(
-            child: _imageFile == null
+            child: _imageBytes == null
                 ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.image_outlined, size: 100, color: Colors.grey),
+                        Icon(
+                          Icons.image_outlined,
+                          size: 100,
+                          color: Colors.grey,
+                        ),
                         SizedBox(height: 16),
-                        Text('Select an image to perform OCR'),
+                        Text('Loading test image...'),
                       ],
                     ),
                   )
@@ -324,19 +516,24 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                     builder: (context, constraints) {
                       return GestureDetector(
                         onTapDown: (details) {
-                          if (_imageFile != null) {
-                            final RenderBox box = context.findRenderObject() as RenderBox;
+                          if (_imageBytes != null) {
+                            final RenderBox box =
+                                context.findRenderObject() as RenderBox;
                             _handleTapOnImage(details, box, BoxFit.contain);
                           }
                         },
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            Image.file(
-                              _imageFile!,
-                              fit: BoxFit.contain,
-                            ),
-                            if (_showTextOverlay && _ocrResult != null && _imageOriginalSize != null)
+                            _imageFile != null
+                                ? Image.file(_imageFile!, fit: BoxFit.contain)
+                                : Image.memory(
+                                    _imageBytes!,
+                                    fit: BoxFit.contain,
+                                  ),
+                            if (_showTextOverlay &&
+                                _ocrResult != null &&
+                                _imageOriginalSize != null)
                               CustomPaint(
                                 size: constraints.biggest,
                                 painter: TextOverlayPainter(
@@ -385,22 +582,85 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                       ],
                     ),
                   ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                // Test image navigation
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AUTO_CYCLE_TEST_IMAGES && _autoCycleTimer != null
+                        ? Colors.green[100]
+                        : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : _previousTestImage,
+                            icon: const Icon(Icons.arrow_back),
+                            tooltip: 'Previous test image',
+                          ),
+                          Flexible(
+                            child: Text(
+                              'Test ${_currentTestImageIndex + 1}/${_testImages.length}: ${_testImages[_currentTestImageIndex].split('/').last}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: _isProcessing
+                                ? null
+                                : _manualNextTestImage,
+                            icon: const Icon(Icons.arrow_forward),
+                            tooltip: 'Next test image',
+                          ),
+                        ],
+                      ),
+                      if (AUTO_CYCLE_TEST_IMAGES && _autoCycleTimer != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '🔄 Auto-cycling every ${AUTO_CYCLE_INTERVAL_SECONDS}s',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _isProcessing ? null : () => _pickImage(ImageSource.camera),
+                      onPressed: _isProcessing
+                          ? null
+                          : () => _pickImage(ImageSource.camera),
                       icon: const Icon(Icons.camera_alt),
                       label: const Text('Camera'),
                     ),
                     ElevatedButton.icon(
-                      onPressed: _isProcessing ? null : () => _pickImage(ImageSource.gallery),
+                      onPressed: _isProcessing
+                          ? null
+                          : () => _pickImage(ImageSource.gallery),
                       icon: const Icon(Icons.photo_library),
                       label: const Text('Gallery'),
                     ),
                     ElevatedButton.icon(
-                      onPressed: _imageBytes == null || _isProcessing ? null : _performOcr,
+                      onPressed: _imageBytes == null || _isProcessing
+                          ? null
+                          : _performOcr,
                       icon: _isProcessing
                           ? const SizedBox(
                               width: 20,
@@ -481,9 +741,9 @@ class TextOverlayPainter extends CustomPainter {
       // Draw the text box with scaled coordinates
       final path = Path();
       if (box.points.isNotEmpty) {
-        final scaledPoints = box.points.map((p) =>
-          Offset(p.dx * scaleX, p.dy * scaleY)
-        ).toList();
+        final scaledPoints = box.points
+            .map((p) => Offset(p.dx * scaleX, p.dy * scaleY))
+            .toList();
 
         path.moveTo(scaledPoints.first.dx, scaledPoints.first.dy);
         for (int j = 1; j < scaledPoints.length; j++) {
@@ -530,8 +790,8 @@ class TextOverlayPainter extends CustomPainter {
   @override
   bool shouldRepaint(TextOverlayPainter oldDelegate) {
     return oldDelegate.ocrResult != ocrResult ||
-           oldDelegate.selectedText != selectedText ||
-           oldDelegate.imageOriginalSize != imageOriginalSize ||
-           oldDelegate.displaySize != displaySize;
+        oldDelegate.selectedText != selectedText ||
+        oldDelegate.imageOriginalSize != imageOriginalSize ||
+        oldDelegate.displaySize != displaySize;
   }
 }
