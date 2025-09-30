@@ -56,10 +56,12 @@ class OcrProcessor(private val context: Context) {
 
     private fun loadCharacterDict() {
         context.assets.open("flutter_assets/packages/onnx_ocr_plugin/assets/models/ppocrv5_dict.txt").use { stream ->
-            characterDict = stream.bufferedReader().readLines()
+            val characters = stream.bufferedReader().readLines().toMutableList()
+            // Add space character (matching use_space_char=True, the Python default)
+            characters.add(" ")
+            // Add CTC blank token at the beginning (CTCLabelDecode.add_special_char)
+            characterDict = listOf("blank") + characters
         }
-        // Add CTC blank token at the beginning
-        characterDict = listOf("blank") + characterDict
     }
 
     fun processImage(bitmap: Bitmap): OcrResult {

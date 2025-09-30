@@ -3,14 +3,18 @@
 ## Project Overview
 
 ### Intention
+
 Create a Flutter plugin (initially Android-only) that performs Optical Character Recognition (OCR) on images using ONNX models. The plugin should:
+
 - Take an image as input and return detected text
 - Display selectable text overlay on top of images (similar to iOS apps)
 - Be easily integrable into existing Flutter applications
 - Process everything on-device for privacy and performance
 
 ### Implementation Strategy
+
 The plugin is a **direct port** of the [OnnxOCR Python implementation](https://github.com/jingsongliujing/OnnxOCR) to Android/Kotlin, maintaining exact compatibility with:
+
 - The same ONNX models (PaddleOCR v5)
 - The same preprocessing/postprocessing logic
 - The same detection, classification, and recognition pipeline
@@ -18,6 +22,7 @@ The plugin is a **direct port** of the [OnnxOCR Python implementation](https://g
 ## Current Architecture
 
 ### Project Structure
+
 ```
 onnx_ocr_plugin/
 ├── android/                    # Android native implementation
@@ -42,6 +47,7 @@ onnx_ocr_plugin/
 ### OCR Pipeline (Exact Copy of OnnxOCR)
 
 1. **Text Detection** (`TextDetector.kt`)
+
    - Algorithm: DB (Differentiable Binarization)
    - Input preprocessing:
      - Resize image with `limit_side_len=960` (min side)
@@ -56,6 +62,7 @@ onnx_ocr_plugin/
      - Min size: 3x3 pixels
 
 2. **Text Angle Classification** (`TextClassifier.kt`)
+
    - Purpose: Detect 180-degree rotated text
    - Input shape: (3, 48, 192)
    - Normalization: (pixel/255 - 0.5) / 0.5
@@ -73,6 +80,7 @@ onnx_ocr_plugin/
 ### Key Implementation Details
 
 #### Native Layer (Kotlin)
+
 - **ONNX Runtime**: Version 1.16.3 for Android
 - **Async Processing**: Kotlin coroutines for non-blocking operations
 - **Memory Optimization**: All heavy processing stays in native layer
@@ -80,6 +88,7 @@ onnx_ocr_plugin/
 - **Batch Processing**: Recognition processes up to 6 regions simultaneously
 
 #### Flutter Layer
+
 - **Method Channel**: Communication with native code
 - **Data Models**:
   - `OcrResult`: Contains boxes, texts, and confidence scores
@@ -88,6 +97,7 @@ onnx_ocr_plugin/
 - **Image Support**: Accepts Uint8List (PNG/JPEG format)
 
 #### Sample App Features
+
 - Image selection from camera/gallery
 - Text detection with visual overlay
 - Tap-to-select text regions
@@ -99,6 +109,7 @@ onnx_ocr_plugin/
 ### Model Parameters (From OnnxOCR Analysis)
 
 #### Detection Model
+
 - **Preprocessing**: DetResizeForTest → NormalizeImage → ToCHWImage
 - **Postprocessing**: DBPostProcess with polygon/quad output
 - **Key parameters**:
@@ -108,6 +119,7 @@ onnx_ocr_plugin/
   - `det_db_unclip_ratio`: 1.5
 
 #### Recognition Model
+
 - **Image dimensions**: 48 height, 320 max width
 - **Character set**: ~6000+ Chinese characters + English + symbols
 - **Decoding**: CTC with blank token at index 0
@@ -115,15 +127,16 @@ onnx_ocr_plugin/
 
 ## Current Issues
 
-### 1. **Spaces Not Detected** 🔴
+### 1. **Spaces Not Detected** ✅ FIXED
+
 - **Problem**: Spaces between words are missing in recognized text
-- **Likely Cause**:
-  - Character dictionary might not include space character properly
-  - CTC decoder might be removing spaces as blanks
-  - Need to verify `use_space_char` parameter is properly handled
+- **Root Cause**: Character dictionary was not appending space character after loading from file
+- **Solution**: Updated `OcrProcessor.loadCharacterDict()` to match Python implementation by appending " " before prepending "blank" token
+- **Fixed in**: OcrProcessor.kt:57-65
 
 ### 2. **Truncated Words/Sentences** 🔴
-- **Problem**: Beginning and/or ending of text is often incorrect or missing
+
+- **Problem**: Beginning and/or ending of text is often incorrect or missing. And tall letters (like y) are often incorrectly recognized (as v).
 - **Likely Causes**:
   - Text region cropping might be too tight (not enough padding)
   - Perspective transform might be cutting off edges
@@ -131,6 +144,7 @@ onnx_ocr_plugin/
   - Recognition model input width (320) might be too small for long text
 
 ### 3. **App Crashes on Large Images** 🔴
+
 - **Problem**: Sample app crashes with medium/large images
 - **Symptoms**: Likely OutOfMemoryError
 - **Likely Causes**:
@@ -139,20 +153,28 @@ onnx_ocr_plugin/
   - ONNX session memory not being released properly
   - Need to implement image size limits or progressive downscaling
 
+### 4. **OCR consistently failing on certain images** 🔴
+
+- **Problem**: Sample app gives an error when processing certain images
+- **Symptoms**: PlatformException(OCR_ERROR, Failed to process image: Index 3 out of bounds for length 2, null, null)
+
 ## Next Steps / TODOs
 
 ### High Priority Fixes
+
 1. **Fix Memory Issues**
+
    - [ ] Add image size validation and automatic downscaling
    - [ ] Implement memory-efficient bitmap handling
    - [ ] Add proper cleanup of ONNX tensors after inference
    - [ ] Consider processing in tiles for very large images
 
 2. **Fix Text Recognition Accuracy**
-   - [ ] Debug space character handling in CTC decoder
+
+   - [x] Debug space character handling in CTC decoder ✅
+   - [x] Verify character dictionary is loaded correctly ✅
    - [ ] Adjust text region cropping padding
    - [ ] Test different unclip ratios for better text coverage
-   - [ ] Verify character dictionary is loaded correctly
 
 3. **Fix Word Truncation**
    - [ ] Add padding to cropped text regions
@@ -160,17 +182,21 @@ onnx_ocr_plugin/
    - [ ] Test with different recognition input widths
 
 ### Feature Enhancements
+
 1. **Performance Optimization**
+
    - [ ] Profile and optimize preprocessing operations
    - [ ] Implement caching for repeated OCR on same image
    - [ ] Add progress callbacks for long operations
 
 2. **Language Support**
+
    - [ ] Make character dictionary configurable
    - [ ] Add English-only mode for smaller model size
    - [ ] Support for additional languages
 
 3. **iOS Support**
+
    - [ ] Implement iOS native code (Swift/Objective-C)
    - [ ] Ensure feature parity with Android
 
@@ -180,12 +206,15 @@ onnx_ocr_plugin/
    - [ ] Add export formats (PDF, structured text)
 
 ### Code Quality
+
 1. **Error Handling**
+
    - [ ] Add comprehensive error messages
    - [ ] Implement fallback mechanisms
    - [ ] Add logging for debugging
 
 2. **Testing**
+
    - [ ] Unit tests for image processing functions
    - [ ] Integration tests for OCR pipeline
    - [ ] Performance benchmarks
@@ -198,10 +227,12 @@ onnx_ocr_plugin/
 ## Technical Debt
 
 1. **Contour Detection**: Current implementation is simplified
+
    - Need proper connected component analysis
    - Should use more sophisticated contour tracing
 
 2. **Minimum Area Rectangle**: Using bounding box instead of proper min area rect
+
    - Need to implement rotating calipers algorithm
 
 3. **Polygon Expansion**: Basic implementation of unclip operation
@@ -210,6 +241,7 @@ onnx_ocr_plugin/
 ## Configuration Notes
 
 ### Android Build Configuration
+
 ```gradle
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.16.3")
@@ -218,6 +250,7 @@ dependencies {
 ```
 
 ### Required Permissions (Android)
+
 ```xml
 <uses-permission android:name="android.permission.CAMERA" />
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
@@ -226,11 +259,13 @@ dependencies {
 ## Development Tips
 
 1. **Debugging OCR Results**:
+
    - Enable `save_crop_res` to save cropped text regions
    - Log preprocessing values to verify normalization
    - Check tensor shapes match expected model inputs
 
 2. **Memory Management**:
+
    - Always dispose of bitmaps after use
    - Close ONNX tensors explicitly
    - Use bitmap.recycle() in Kotlin
@@ -254,6 +289,7 @@ dependencies {
 **Date**: 2025-09-29
 
 **Accomplished**:
+
 - ✅ Created complete Flutter plugin structure
 - ✅ Implemented Android native OCR processing
 - ✅ Ported all three models (detection, classification, recognition)
@@ -262,6 +298,7 @@ dependencies {
 - ✅ Added "view all text" feature
 
 **Discovered Issues**:
+
 - ❌ Spaces not detected in text
 - ❌ Word truncation at boundaries
 - ❌ Memory crashes with large images
@@ -269,3 +306,20 @@ dependencies {
 **Time Spent**: ~4 hours
 
 **Next Session Priority**: Fix memory issues first (blocking issue), then address text accuracy problems.
+
+---
+
+**Date**: 2025-09-30
+
+**Accomplished**:
+
+- ✅ Fixed space character handling in character dictionary (OcrProcessor.kt)
+- ✅ Verified implementation matches Python OnnxOCR source exactly
+
+**Current Issues**:
+
+- 🔴 Word truncation at boundaries (text regions too tight)
+- 🔴 Memory crashes with large images (no downscaling)
+- 🔴 Index out of bounds errors on certain images
+
+**Next Priority**: Add image size validation and automatic downscaling to prevent OOM crashes.
