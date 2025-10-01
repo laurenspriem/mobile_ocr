@@ -13,7 +13,7 @@ Create a Flutter plugin (initially Android-only) that performs Optical Character
 
 ### Implementation Strategy
 
-The plugin is a **direct port** of the [OnnxOCR Python implementation](https://github.com/jingsongliujing/OnnxOCR) to Android/Kotlin, maintaining exact compatibility with:
+The plugin is a **direct port** of the [OnnxOCR Python implementation](https://github.com/jingsongliujing/OnnxOCR) (cloned in `./OnnxOCR/`) to Android/Kotlin, maintaining exact compatibility with:
 
 - The same ONNX models (PaddleOCR v5)
 - The same preprocessing/postprocessing logic
@@ -134,14 +134,23 @@ onnx_ocr_plugin/
 - **Solution**: Updated `OcrProcessor.loadCharacterDict()` to match Python implementation by appending " " before prepending "blank" token
 - **Fixed in**: OcrProcessor.kt:57-65
 
-### 2. **Truncated Words/Sentences** 🔴
+### 2. **Text Recognition Accuracy** 🔴
 
-- **Problem**: Beginning and/or ending of text is often incorrect or missing. And tall letters (like y) are often incorrectly recognized (as v).
-- **Likely Causes**:
-  - Text region cropping might be too tight (not enough padding)
-  - Perspective transform might be cutting off edges
-  - Unclip ratio (1.5) might need adjustment
-  - Recognition model input width (320) might be too small for long text
+- **Problem**: Character recognition errors on simple, readable text. Example: "Me randomly when I love you" → "Me randomly when lve vou"
+- **Goal**: Should achieve 100% accuracy on the test sentence "Me randomly when I love you" as it's clearly readable and uses common characters
+- **Current Issues**:
+  - Character confusion: "I" → "l", "o" → "v", "y" → "v"
+  - Truncation partially fixed (unclip operation added), but recognition accuracy still not matching Python implementation
+- **Fixed So Far**:
+  - ✅ Added unclip/expand operation (1.5x) to TextDetector - significantly improved edge truncation
+  - ✅ Fixed crop dimension calculation to use max of opposing sides in ImageUtils.kt
+  - ✅ "Nobody:" now recognized perfectly (99.8%)
+  - ✅ "BeamCardShop" now complete (was "BeamCardShor")
+  - ✅ "randomly" now correct (was "randomlv")
+- **Remaining Issues**:
+  - Text cropping may still differ from Python (perspective transform, interpolation, borderMode)
+  - Recognition preprocessing may have subtle differences
+  - Need to compare cropped text regions with Python output
 
 ### 3. **App Crashes on Large Images** 🔴
 
@@ -162,24 +171,28 @@ onnx_ocr_plugin/
 
 ### High Priority Fixes
 
-1. **Fix Memory Issues**
+1. **Fix Text Recognition Accuracy** (CRITICAL - Must achieve 100% on test sentence)
+
+   - [x] Debug space character handling in CTC decoder ✅
+   - [x] Verify character dictionary is loaded correctly ✅
+   - [x] Add unclip operation to expand text regions before cropping ✅
+   - [x] Fix crop dimension calculation to use max of opposing sides ✅
+   - [ ] Compare cropped text regions with Python implementation output
+   - [ ] Verify perspective transform matches Python (borderMode: BORDER_REPLICATE, interpolation: INTER_CUBIC)
+   - [ ] Check if recognition preprocessing exactly matches Python
+   - [ ] Debug why "I love you" → "lve vou" (should be perfect match)
+   - **Success Criteria**: "Me randomly when I love you" recognized with 100% accuracy
+
+2. **Fix Memory Issues**
 
    - [ ] Add image size validation and automatic downscaling
    - [ ] Implement memory-efficient bitmap handling
    - [ ] Add proper cleanup of ONNX tensors after inference
    - [ ] Consider processing in tiles for very large images
 
-2. **Fix Text Recognition Accuracy**
-
-   - [x] Debug space character handling in CTC decoder ✅
-   - [x] Verify character dictionary is loaded correctly ✅
-   - [ ] Adjust text region cropping padding
-   - [ ] Test different unclip ratios for better text coverage
-
-3. **Fix Word Truncation**
-   - [ ] Add padding to cropped text regions
-   - [ ] Check if perspective transform is preserving full text
-   - [ ] Test with different recognition input widths
+3. **Fix Index Out of Bounds Error**
+   - [ ] Debug "Index 3 out of bounds for length 2" error on certain images
+   - [ ] Add proper bounds checking and error handling
 
 ### Feature Enhancements
 
@@ -278,6 +291,7 @@ flutter run
 NEVER run `flutter run` directly with Bash tool - it produces massive console output that ruins context.
 
 Use the Task tool with the general-purpose subagent to:
+
 1. Run `flutter run` in the example directory
 2. Monitor the console output for OCR results
 3. Report back only the key findings (detected text vs ground truth)
@@ -433,21 +447,24 @@ Ground truth for all images is in `example/assets/test_ocr/ground_truth.json`.
 
 ---
 
-**Date**: 2025-10-01
+**Date**: 2025-10-01 (Morning Session)
 
-**Test Results - meme_love_you.jpeg**:
+**Test Results - meme_love_you.jpeg** (BEFORE FIXES):
 
 **OCR Output**:
+
 1. [91.5%] Nobody
 2. [85.7%] Me randomlv when llove vol
 3. [94.8%] Source:@BeamCardShor
 
 **Ground Truth**:
+
 1. Nobody:
 2. Me randomly when I love you
 3. Source: @BeamCardShop
 
 **Issues Identified**:
+
 - ❌ Line 1: Missing colon after "Nobody" (truncation)
 - ❌ Line 2: Multiple character errors:
   - "randomly" → "randomlv" (y→v substitution, confirming tall letter issue)
@@ -455,9 +472,61 @@ Ground truth for all images is in `example/assets/test_ocr/ground_truth.json`.
 - ❌ Line 3: "BeamCardShop" → "BeamCardShor" (p missing, truncation)
 
 **Analysis**:
+
 - Character recognition accuracy: ~85.7% on line 2 (worst case)
 - Consistent pattern of truncation at word/sentence boundaries
 - Tall letters (y, l, u) frequently misrecognized
 - Confirms text region cropping is too tight (insufficient padding)
 
 **Priority**: Fix text region cropping/padding before addressing other issues.
+
+---
+
+**Date**: 2025-10-01 (Afternoon Session)
+
+**Accomplished**:
+
+- ✅ Identified root cause: Missing unclip operation in TextDetector
+- ✅ Added polygon expansion logic (unclip operation with 1.5x ratio) to TextDetector.kt
+- ✅ Implemented centroid-based polygon expansion algorithm
+- ✅ Fixed crop dimension calculation in ImageUtils.kt to use max of opposing sides
+- ✅ Tested changes and confirmed significant improvement
+
+**Test Results - meme_love_you.jpeg** (AFTER FIXES):
+
+**OCR Output**:
+
+1. [99.8%] Nobody:
+2. [~85%] Me randomly when lve vou
+3. [96.6%] Source:@BeamCardShop
+
+**Ground Truth**:
+
+1. Nobody:
+2. Me randomly when I love you
+3. Source: @BeamCardShop
+
+**Comparison**:
+| Text Segment | Before | After | Status |
+|--------------|--------|-------|--------|
+| "Nobody:" | "Nobody" (truncated) | "Nobody:" | ✅ Perfect |
+| "randomly" | "randomlv" | "randomly" | ✅ Fixed |
+| "I love you" | "llove vol" | "lve vou" | ⚠️ Improved but errors remain |
+| "BeamCardShop" | "BeamCardShor" | "BeamCardShop" | ✅ Perfect |
+
+**Current Issues**:
+
+- ⚠️ "I love you" → "lve vou" - character recognition errors persist
+  - Missing "I" at start
+  - "o" → "v" substitution
+  - "y" → missing
+- Still not matching Python implementation quality
+
+**Next Steps**:
+
+1. Compare cropped text regions with Python output (save and inspect actual cropped images)
+2. Verify perspective transform parameters match Python exactly:
+   - borderMode: cv2.BORDER_REPLICATE
+   - interpolation: cv2.INTER_CUBIC
+3. Check recognition preprocessing for any subtle differences
+4. Goal: Achieve 100% accuracy on "Me randomly when I love you"

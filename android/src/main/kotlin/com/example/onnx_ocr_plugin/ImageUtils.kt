@@ -11,8 +11,15 @@ object ImageUtils {
         }
 
         // Calculate dimensions of the cropped region
-        val width = distance(points[0], points[1]).toInt()
-        val height = distance(points[0], points[3]).toInt()
+        // Use maximum of opposing sides to avoid truncation (matching Python implementation)
+        val width = max(
+            distance(points[0], points[1]),  // top edge
+            distance(points[2], points[3])   // bottom edge
+        ).toInt()
+        val height = max(
+            distance(points[0], points[3]),  // left edge
+            distance(points[1], points[2])   // right edge
+        ).toInt()
 
         // Create destination points for perspective transform
         val dstPoints = floatArrayOf(

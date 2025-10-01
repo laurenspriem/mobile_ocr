@@ -149,15 +149,18 @@ class TextDetector(
             val rect = getMinAreaRect(contour)
             if (rect.isEmpty()) continue
 
-            // Scale back to original image size
-            val scaledPoints = rect.map { point ->
+            // CRITICAL: Unclip/expand the box (matching Python's unclip operation)
+            val unclippedRect = unclipBox(rect, UNCLIP_RATIO)
+            if (unclippedRect.isEmpty()) continue
+
+            // Check minimum size before scaling (use unclipped rect directly)
+            val minSide = getMinSide(unclippedRect)
+            if (minSide < MIN_SIZE + 2) continue
+
+            // Scale back to original image size (use unclipped rect directly)
+            val scaledPoints = unclippedRect.map { point ->
                 PointF(point.x * scaleX, point.y * scaleY)
             }
-
-            // Check minimum size
-            val width = distance(scaledPoints[0], scaledPoints[1])
-            val height = distance(scaledPoints[0], scaledPoints[3])
-            if (width < MIN_SIZE || height < MIN_SIZE) continue
 
             boxes.add(TextBox(scaledPoints))
         }
@@ -342,5 +345,78 @@ class TextDetector(
             { it.points[0].y },
             { it.points[0].x }
         ))
+    }
+
+    private fun unclipBox(box: List<PointF>, unclipRatio: Float): List<PointF> {
+        // Calculate polygon area and perimeter
+        val area = calculatePolygonArea(box)
+        val perimeter = calculatePerimeter(box)
+
+        if (perimeter == 0f) return emptyList()
+
+        // Calculate expansion distance (matching Python's pyclipper logic)
+        val distance = area * unclipRatio / perimeter
+
+        // Expand polygon by moving each point outward along its normal
+        return expandPolygon(box, distance)
+    }
+
+    private fun calculatePolygonArea(points: List<PointF>): Float {
+        if (points.size < 3) return 0f
+        var area = 0f
+        for (i in points.indices) {
+            val j = (i + 1) % points.size
+            area += points[i].x * points[j].y
+            area -= points[j].x * points[i].y
+        }
+        return abs(area) / 2f
+    }
+
+    private fun calculatePerimeter(points: List<PointF>): Float {
+        if (points.size < 2) return 0f
+        var perimeter = 0f
+        for (i in points.indices) {
+            val j = (i + 1) % points.size
+            perimeter += distance(points[i], points[j])
+        }
+        return perimeter
+    }
+
+    private fun expandPolygon(points: List<PointF>, distance: Float): List<PointF> {
+        if (points.size < 3) return points
+
+        // Calculate centroid
+        var centerX = 0f
+        var centerY = 0f
+        for (point in points) {
+            centerX += point.x
+            centerY += point.y
+        }
+        centerX /= points.size
+        centerY /= points.size
+
+        // Expand each point away from centroid
+        return points.map { point ->
+            val dx = point.x - centerX
+            val dy = point.y - centerY
+            val len = sqrt(dx * dx + dy * dy)
+
+            if (len > 0) {
+                // Move point outward by distance
+                val scale = (len + distance) / len
+                PointF(centerX + dx * scale, centerY + dy * scale)
+            } else {
+                point
+            }
+        }
+    }
+
+    private fun getMinSide(box: List<PointF>): Float {
+        if (box.size < 4) return 0f
+        val width1 = distance(box[0], box[1])
+        val width2 = distance(box[2], box[3])
+        val height1 = distance(box[0], box[3])
+        val height2 = distance(box[1], box[2])
+        return min(min(width1, width2), min(height1, height2))
     }
 }
