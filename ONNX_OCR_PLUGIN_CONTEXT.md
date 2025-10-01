@@ -19,6 +19,39 @@ The plugin is a **direct port** of the [OnnxOCR Python implementation](https://g
 - The same preprocessing/postprocessing logic
 - The same detection, classification, and recognition pipeline
 
+### Critical Constraints
+
+⚠️ **NO OPENCV OR LARGE SDKS** ⚠️
+
+**This plugin MUST NOT use OpenCV or any other large SDK/library that bundles native .so files.**
+
+The only exception is ONNX Runtime, which is allowed and needed.
+
+**Reasoning:**
+
+- OpenCV for Android adds 10-20 MB of native libraries (.so files) for multiple architectures
+- This creates unacceptable bloat for the host application
+- The plugin should remain lightweight and dependency-minimal
+
+**Allowed Approaches:**
+
+1. **Native Android APIs only** (Bitmap, Canvas, Matrix, Paint, etc.)
+2. **Pure Kotlin/Java code** without native dependencies
+3. **Custom implementations** of algorithms when needed
+4. **Lightweight pure-code packages** that have no .so files or large SDK dependencies
+
+**Forbidden Approaches:**
+
+- ❌ OpenCV (cv2, org.opencv)
+- ❌ Any library that bundles native .so files
+- ❌ Large image processing SDKs
+
+**When porting Python code that uses cv2:**
+
+- Use Android's Bitmap and Canvas APIs for image operations
+- Implement custom algorithms in Kotlin where necessary
+- Accept that some operations may differ slightly from Python's cv2 implementation, as long as the end accuracy is still good.
+
 ## Current Architecture
 
 ### Project Structure
@@ -81,10 +114,11 @@ onnx_ocr_plugin/
 
 #### Native Layer (Kotlin)
 
-- **ONNX Runtime**: Version 1.16.3 for Android
+- **ONNX Runtime**: Version 1.16.3 for Android (only allowed external dependency)
 - **Async Processing**: Kotlin coroutines for non-blocking operations
 - **Memory Optimization**: All heavy processing stays in native layer
-- **No OpenCV**: Custom image processing implementations
+- **No OpenCV**: All image processing uses native Android APIs (Bitmap, Canvas, Matrix, Paint) or custom Kotlin implementations
+- **Zero .so file bloat**: No native libraries beyond ONNX Runtime
 - **Batch Processing**: Recognition processes up to 6 regions simultaneously
 
 #### Flutter Layer
@@ -379,19 +413,27 @@ Ground truth for all images is in `example/assets/test_ocr/ground_truth.json`.
 
 ## Development Tips
 
-1. **Debugging OCR Results**:
+1. **⚠️ CRITICAL: No Large Dependencies**:
+
+   - **NEVER add OpenCV or similar SDKs** - they add 10-20 MB of .so files
+   - Only use Android's native APIs: Bitmap, Canvas, Matrix, Paint, etc.
+   - Write custom implementations rather than importing large libraries
+   - When the Python code uses cv2, find Android equivalents or implement in pure Kotlin
+   - Accept minor differences in output vs Python if it means avoiding bloat
+
+2. **Debugging OCR Results**:
 
    - Enable `save_crop_res` to save cropped text regions
    - Log preprocessing values to verify normalization
    - Check tensor shapes match expected model inputs
 
-2. **Memory Management**:
+3. **Memory Management**:
 
    - Always dispose of bitmaps after use
    - Close ONNX tensors explicitly
    - Use bitmap.recycle() in Kotlin
 
-3. **Coordinate Systems**:
+4. **Coordinate Systems**:
    - OCR returns coordinates in original image space
    - UI overlay needs transformation to display space
    - Remember to account for BoxFit scaling
