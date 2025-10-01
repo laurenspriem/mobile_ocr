@@ -272,8 +272,12 @@ flutter run
 ```
 
 **For AI Agents:**
-Use a subagent to run the app and report findings. The subagent should:
-gradle
+
+⚠️ **CRITICAL: ALWAYS use Task tool with general-purpose agent** ⚠️
+
+NEVER run `flutter run` directly with Bash tool - it produces massive console output that ruins context.
+
+Use the Task tool with the general-purpose subagent to:
 1. Run `flutter run` in the example directory
 2. Monitor the console output for OCR results
 3. Report back only the key findings (detected text vs ground truth)
@@ -426,3 +430,34 @@ Ground truth for all images is in `example/assets/test_ocr/ground_truth.json`.
 - 🔴 Index out of bounds errors on certain images
 
 **Next Priority**: Add image size validation and automatic downscaling to prevent OOM crashes.
+
+---
+
+**Date**: 2025-10-01
+
+**Test Results - meme_love_you.jpeg**:
+
+**OCR Output**:
+1. [91.5%] Nobody
+2. [85.7%] Me randomlv when llove vol
+3. [94.8%] Source:@BeamCardShor
+
+**Ground Truth**:
+1. Nobody:
+2. Me randomly when I love you
+3. Source: @BeamCardShop
+
+**Issues Identified**:
+- ❌ Line 1: Missing colon after "Nobody" (truncation)
+- ❌ Line 2: Multiple character errors:
+  - "randomly" → "randomlv" (y→v substitution, confirming tall letter issue)
+  - "I love you" → "llove vol" (I→l, u→l substitutions, truncation)
+- ❌ Line 3: "BeamCardShop" → "BeamCardShor" (p missing, truncation)
+
+**Analysis**:
+- Character recognition accuracy: ~85.7% on line 2 (worst case)
+- Consistent pattern of truncation at word/sentence boundaries
+- Tall letters (y, l, u) frequently misrecognized
+- Confirms text region cropping is too tight (insufficient padding)
+
+**Priority**: Fix text region cropping/padding before addressing other issues.
