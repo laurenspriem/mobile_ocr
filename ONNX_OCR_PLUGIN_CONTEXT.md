@@ -245,8 +245,8 @@ onnx_ocr_plugin/
 ```gradle
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.16.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-}
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3')
+   }
 ```
 
 ### Required Permissions (Android)
@@ -265,6 +265,7 @@ The example app is configured for easy testing and verification of OCR functiona
 #### Running Tests
 
 **For Developers:**
+
 ```bash
 cd example/
 flutter run
@@ -272,6 +273,7 @@ flutter run
 
 **For AI Agents:**
 Use a subagent to run the app and report findings. The subagent should:
+gradle
 1. Run `flutter run` in the example directory
 2. Monitor the console output for OCR results
 3. Report back only the key findings (detected text vs ground truth)
@@ -280,11 +282,13 @@ Use a subagent to run the app and report findings. The subagent should:
 #### What Happens Automatically
 
 1. **Auto-load First Test Image** (3 second delay)
+
    - App loads `meme_love_you.jpeg` on startup
    - Waits 3 seconds for ONNX models to initialize
    - Automatically runs OCR
 
 2. **Console Output Format**
+
    ```
    ========================================
    Loaded test image: meme_love_you.jpeg
@@ -319,6 +323,7 @@ Use a subagent to run the app and report findings. The subagent should:
 By default, only the first image is tested. To cycle through all 10 test images:
 
 1. **Enable Auto-Cycle Feature Flag** (main.dart:14)
+
    ```dart
    const bool AUTO_CYCLE_TEST_IMAGES = true;  // Change to true
    ```
@@ -333,6 +338,7 @@ By default, only the first image is tested. To cycle through all 10 test images:
 #### Available Test Images
 
 Located in `example/assets/test_ocr/`:
+
 1. `meme_love_you.jpeg` - Pokemon meme (default)
 2. `meme_perfect_couple.jpeg` - Stick figure temperature meme
 3. `meme_ice_cream.jpeg` - Ice cream meme
