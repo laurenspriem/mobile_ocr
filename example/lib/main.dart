@@ -63,9 +63,9 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     'assets/test_ocr/text_photos.jpeg',
     'assets/test_ocr/payment_transactions.png',
     'assets/test_ocr/receipt_swiggy.jpg',
-    // 'assets/test_ocr/screen_photos.jpeg',
-    // 'assets/test_ocr/mail_screenshot.jpeg',
-    // 'assets/test_ocr/ocr_test.jpeg',
+    'assets/test_ocr/screen_photos.jpeg',
+    'assets/test_ocr/mail_screenshot.jpeg',
+    'assets/test_ocr/ocr_test.jpeg',
   ];
 
   int _currentTestImageIndex = 0;
