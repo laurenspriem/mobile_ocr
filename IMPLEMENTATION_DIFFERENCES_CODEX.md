@@ -1,6 +1,6 @@
 # OnnxOCR Plugin vs Python Reference
 
-## High-Impact Deviations _(status 2025-10-05, Codex)_
+## High-Impact Deviations _(status 2025-10-06, Codex)_
 - ✅ **Color channel order mismatch** – detection, recognition, and classification preprocessors now feed BGR tensors to ONNX (`android/src/main/kotlin/com/example/onnx_ocr_plugin/TextDetector.kt:73`, `TextRecognizer.kt:112`, `TextClassifier.kt:100`). This aligns us with the PaddleOCR training statistics used in the Python reference.
 - ✅ **Detection geometry** – connected components are traced, converted to convex hulls, and fed through a rotating-calipers minimum-area rectangle implementation before scaling back to the source image (`TextDetector.kt:166-300`). Boxes are ordered with the same vertical grouping heuristic that the Python pipeline uses.
 - ✅ **Unclip and contour handling** – instead of centroid scaling, rectangles are expanded using the PaddleOCR area/perimeter heuristic and then clamped to image bounds (`TextDetector.kt:421-463`). This mirrors pyclipper’s expansion behaviour for quadrilaterals.
@@ -27,7 +27,7 @@
 12. [Resolved] **Large-image guard** – Preprocessing caps the longest side at `limit_side_len` before padding to multiples of 32 (`TextDetector.kt:93-108`).
 
 ### Crop Extraction
-13. [Resolved] **Perspective warp** – Manual inverse perspective warp with bilinear sampling and replicate borders matches the reference output more closely (`ImageUtils.kt:8-82`, `ImageUtils.kt:187-214`).
+13. [Resolved] **Perspective warp** – Manual inverse perspective warp with Catmull–Rom bicubic sampling and replicate borders mirrors the Python crop quality (`ImageUtils.kt:8-214`).
 14. [Resolved] **Point ordering** – All quads are normalised to clockwise order before cropping (`ImageUtils.kt:84-118`, `OcrProcessor.kt:112-114`).
 15. [Resolved] **Rotation heuristic** – The 90° correction is preserved post-warp; behaviour matches Python’s `np.rot90` branch for tall crops (`ImageUtils.kt:65-78`).
 
@@ -53,22 +53,22 @@
 30. [Open] **Error reporting** – Native side returns generic `PlatformException`s; richer diagnostics remain a to-do.
 31. [Open] **Testing aids** – Python can persist intermediate crops; the plugin still lacks equivalent instrumentation hooks.
 
-## Modernization Plan _(updated 2025-10-05)_
+## Modernization Plan _(updated 2025-10-06)_
 
 ### Recently Completed
-- **Stage 0 (parity quick wins)** – BGR preprocessing, angle-classifier default handling, and resize/clamp safeguards now mirror the Python defaults.
+- **Stage 0 (parity quick wins)** – BGR preprocessing, limit-side resizing, and confidence heuristics are in place; angle classification now gates itself via heuristics instead of running globally.
 - **Stage 1 (DB post-process fidelity)** – Component extraction, rotating-calipers rectangles, polygon scoring, and area/perimeter unclipping all align with the reference implementation.
-- **Stage 2 (crop quality)** – Manual inverse homography with replicate borders is in place; further interpolation tweaks can iterate from this baseline.
+- **Stage 2 (crop quality & recognition prep)** – Inverse homography uses Catmull–Rom bicubic sampling with replicate borders, and the recognizer/classifier match PaddleOCR’s width rounding and zero-padding semantics.
 
 ### Upcoming Focus Areas
-1. **Expose tuning knobs** – Surface detection thresholds, scoring modes, and optional angle classification through the Flutter API so future experiments do not require native changes.
-2. **Performance profiling** – Measure the impact of per-request helper instantiation and consider caching ONNX tensors/buffers if GC pressure becomes visible on large batches.
-3. **Diagnostics & tooling** – DebugOptions now allow optional crop dumps/logging (default off); next step is surfacing classifier confidences or overlay data to Flutter when needed.
-4. **Candidate/throughput controls** – Evaluate whether replicating `max_candidates` or classifier batch sorting brings measurable gains once accuracy is confirmed on-device.
+1. **Reference artifact capture** – Run the Python pipeline with `save_crop_res` enabled (needs external env with OpenCV) and archive crops/logits so we can diff them against the Kotlin debug outputs.
+2. **Recognition batching parity** – Mirror PaddleOCR’s per-batch aspect-ratio resorting and confirm whether an explicit softmax on ONNX logits is required; evaluate impact on the “I love you” sample.
+3. **Classifier telemetry** – Expose classifier logits and applied-rotation flags through `DebugOptions`/Flutter so mis-rotations are easy to diagnose.
+4. **Configuration surface** – Surface detection/recognition thresholds and angle-class toggles through the Dart API to unblock experimentation without native edits.
 
 ### Stage 3 – Verification & Regression Harness (Week 3)
-- Instrument the plugin to optionally dump probability maps, detected polygons, and cropped images.
-- Build a comparison harness that runs Python + plugin on identical inputs, diffs intermediate artifacts, and reports thresholds.
+- Instrument the plugin to optionally dump probability maps, detected polygons, cropped images, and recognition logits alongside the Python artifacts.
+- Build a comparison harness that runs Python + plugin on identical inputs, diffs intermediate artifacts, and reports tolerances.
 - Capture golden outputs from the reference implementation; add JVM tests that assert the Kotlin pipeline matches within tolerance.
 
 **Success metric**: automated regression suite flags drift; developers can iterate confidently.
@@ -86,9 +86,7 @@
 - **Telemetry**: log toggles and model timings for field diagnostics (behind debug flag).
 
 ## Next Actions
-1. Implement RGB→BGR conversion and ≤960 resize guard.
-2. Expose `use_angle_cls` flag and disable classifier by default.
-3. Add bounding-box clamping and unit tests covering large images.
-4. Evaluate Clipper2 Java vs JTS for Stage 1 polygon needs and plan integration.
-
-Staging the work keeps the plugin lightweight, aligns behaviour with the Python ground truth, and provides measurable checkpoints so the team can decide when accuracy is “good enough” or when to escalate to richer geometry tooling.
+1. Generate Python reference crops/recognition outputs for the sample set (requires external env with OpenCV) and store them under `analysis/` for future diffs.
+2. Add Kotlin debug toggles to dump pre-/post-angle crop bitmaps alongside recognition logits so we can compare against the Python artifacts when available.
+3. Confirm whether the ONNX recognizer emits logits or probabilities; if logits, prototype an optional softmax step and measure its impact on the “Me randomly when I love you” sentence.
+4. Prototype PaddleOCR-style per-batch width sorting in Kotlin and benchmark both accuracy and latency.
