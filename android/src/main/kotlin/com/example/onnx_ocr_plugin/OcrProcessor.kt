@@ -17,7 +17,10 @@ data class TextBox(
     val points: List<PointF>
 )
 
-class OcrProcessor(private val context: Context) {
+class OcrProcessor(
+    private val context: Context,
+    private val useAngleClassification: Boolean = false
+) {
     private val ortEnv = OrtEnvironment.getEnvironment()
     private val sessionOptions = OrtSession.SessionOptions().apply {
         setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
@@ -25,7 +28,7 @@ class OcrProcessor(private val context: Context) {
 
     private lateinit var detectionSession: OrtSession
     private lateinit var recognitionSession: OrtSession
-    private lateinit var classificationSession: OrtSession
+    private var classificationSession: OrtSession? = null
 
     private lateinit var characterDict: List<String>
 
@@ -47,10 +50,11 @@ class OcrProcessor(private val context: Context) {
             recognitionSession = ortEnv.createSession(modelBytes, sessionOptions)
         }
 
-        // Load classification model
-        context.assets.open("flutter_assets/packages/onnx_ocr_plugin/assets/models/cls/cls.onnx").use { stream ->
-            val modelBytes = stream.readBytes()
-            classificationSession = ortEnv.createSession(modelBytes, sessionOptions)
+        if (useAngleClassification) {
+            context.assets.open("flutter_assets/packages/onnx_ocr_plugin/assets/models/cls/cls.onnx").use { stream ->
+                val modelBytes = stream.readBytes()
+                classificationSession = ortEnv.createSession(modelBytes, sessionOptions)
+            }
         }
     }
 
@@ -106,11 +110,19 @@ class OcrProcessor(private val context: Context) {
     }
 
     private fun cropTextRegion(bitmap: Bitmap, box: TextBox): Bitmap {
-        return ImageUtils.cropTextRegion(bitmap, box.points)
+        val orderedPoints = ImageUtils.orderPointsClockwise(box.points)
+        return ImageUtils.cropTextRegion(bitmap, orderedPoints)
     }
 
     private fun classifyAndRotateImages(images: List<Bitmap>): List<Bitmap> {
-        val classifier = TextClassifier(classificationSession, ortEnv)
+        if (!useAngleClassification || images.isEmpty()) {
+            return images
+        }
+
+        val session = classificationSession
+            ?: throw IllegalStateException("Angle classification requested but model not loaded")
+
+        val classifier = TextClassifier(session, ortEnv)
         return classifier.classifyAndRotate(images)
     }
 
@@ -122,6 +134,6 @@ class OcrProcessor(private val context: Context) {
     fun close() {
         detectionSession.close()
         recognitionSession.close()
-        classificationSession.close()
+        classificationSession?.close()
     }
 }

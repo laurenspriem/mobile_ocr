@@ -109,14 +109,14 @@ class TextRecognizer(
 
                 if (x < resizedWidth) {
                     val pixel = pixels[y * resizedWidth + x]
-                    val r = ((pixel shr 16) and 0xFF) / 255.0f
-                    val g = ((pixel shr 8) and 0xFF) / 255.0f
                     val b = (pixel and 0xFF) / 255.0f
+                    val g = ((pixel shr 8) and 0xFF) / 255.0f
+                    val r = ((pixel shr 16) and 0xFF) / 255.0f
 
-                    // Normalize: (value - 0.5) / 0.5
-                    outputArray[baseOffset + pixelIndex] = (r - 0.5f) / 0.5f
+                    // Normalize: (value - 0.5) / 0.5, preserving BGR channel order
+                    outputArray[baseOffset + pixelIndex] = (b - 0.5f) / 0.5f
                     outputArray[baseOffset + IMG_HEIGHT * targetWidth + pixelIndex] = (g - 0.5f) / 0.5f
-                    outputArray[baseOffset + 2 * IMG_HEIGHT * targetWidth + pixelIndex] = (b - 0.5f) / 0.5f
+                    outputArray[baseOffset + 2 * IMG_HEIGHT * targetWidth + pixelIndex] = (r - 0.5f) / 0.5f
                 } else {
                     // Padding with zeros
                     outputArray[baseOffset + pixelIndex] = 0f

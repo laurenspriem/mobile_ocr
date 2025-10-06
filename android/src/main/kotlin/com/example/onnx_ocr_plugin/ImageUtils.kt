@@ -15,11 +15,11 @@ object ImageUtils {
         val width = max(
             distance(points[0], points[1]),  // top edge
             distance(points[2], points[3])   // bottom edge
-        ).toInt()
+        ).roundToInt().coerceAtLeast(1)
         val height = max(
             distance(points[0], points[3]),  // left edge
             distance(points[1], points[2])   // right edge
-        ).toInt()
+        ).roundToInt().coerceAtLeast(1)
 
         // Create destination points for perspective transform
         val dstPoints = floatArrayOf(
@@ -41,14 +41,29 @@ object ImageUtils {
         val matrix = Matrix()
         matrix.setPolyToPoly(srcPoints, 0, dstPoints, 0, 4)
 
-        // Apply perspective transform
+        val inverse = Matrix()
+        if (!matrix.invert(inverse)) {
+            throw IllegalStateException("Failed to invert perspective transform matrix")
+        }
+
         val croppedBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(croppedBitmap)
-        canvas.drawBitmap(bitmap, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
+        val pixels = IntArray(width * height)
+        val mappedPoint = FloatArray(2)
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                mappedPoint[0] = x + 0.5f
+                mappedPoint[1] = y + 0.5f
+                inverse.mapPoints(mappedPoint)
+
+                pixels[y * width + x] = sampleBilinear(bitmap, mappedPoint[0], mappedPoint[1])
+            }
+        }
+
+        croppedBitmap.setPixels(pixels, 0, width, 0, 0, width, height)
 
         // Check if the image needs rotation based on aspect ratio
         if (height.toFloat() / width >= 1.5f) {
-            // Rotate 90 degrees if height is significantly larger than width
             val rotationMatrix = Matrix().apply {
                 postRotate(90f)
             }
@@ -167,4 +182,47 @@ object ImageUtils {
 
         return width >= minWidth && height >= minHeight
     }
+}
+
+private fun sampleBilinear(bitmap: Bitmap, x: Float, y: Float): Int {
+    val width = bitmap.width
+    val height = bitmap.height
+
+    val clampedX = x.coerceIn(0f, width - 1f)
+    val clampedY = y.coerceIn(0f, height - 1f)
+
+    val x0 = floor(clampedX).toInt()
+    val x1 = min(x0 + 1, width - 1)
+    val y0 = floor(clampedY).toInt()
+    val y1 = min(y0 + 1, height - 1)
+
+    val dx = clampedX - x0
+    val dy = clampedY - y0
+
+    val c00 = bitmap.getPixel(x0, y0)
+    val c10 = bitmap.getPixel(x1, y0)
+    val c01 = bitmap.getPixel(x0, y1)
+    val c11 = bitmap.getPixel(x1, y1)
+
+    val a00 = 1 - dx
+    val a10 = dx
+    val a01 = 1 - dy
+    val a11 = dy
+
+    val w00 = a00 * a01
+    val w10 = a10 * a01
+    val w01 = a00 * a11
+    val w11 = a10 * a11
+
+    val r = ((c00 shr 16 and 0xFF) * w00 + (c10 shr 16 and 0xFF) * w10 +
+            (c01 shr 16 and 0xFF) * w01 + (c11 shr 16 and 0xFF) * w11).roundToInt().coerceIn(0, 255)
+    val g = ((c00 shr 8 and 0xFF) * w00 + (c10 shr 8 and 0xFF) * w10 +
+            (c01 shr 8 and 0xFF) * w01 + (c11 shr 8 and 0xFF) * w11).roundToInt().coerceIn(0, 255)
+    val b = ((c00 and 0xFF) * w00 + (c10 and 0xFF) * w10 +
+            (c01 and 0xFF) * w01 + (c11 and 0xFF) * w11).roundToInt().coerceIn(0, 255)
+
+    val alpha = ((c00 ushr 24) * w00 + (c10 ushr 24) * w10 +
+            (c01 ushr 24) * w01 + (c11 ushr 24) * w11).roundToInt().coerceIn(0, 255)
+
+    return (alpha shl 24) or (r shl 16) or (g shl 8) or b
 }

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.PointF
 import ai.onnxruntime.*
 import java.nio.FloatBuffer
+import java.util.ArrayDeque
 import kotlin.math.*
 
 class TextDetector(
@@ -69,14 +70,14 @@ class TextDetector(
         for (y in 0 until resizedHeight) {
             for (x in 0 until resizedWidth) {
                 val pixel = pixels[y * resizedWidth + x]
-                val r = ((pixel shr 16) and 0xFF) * scale
-                val g = ((pixel shr 8) and 0xFF) * scale
                 val b = (pixel and 0xFF) * scale
+                val g = ((pixel shr 8) and 0xFF) * scale
+                val r = ((pixel shr 16) and 0xFF) * scale
 
-                // CHW format
-                inputArray[pixelIndex] = (r - mean[0]) / std[0]
+                // CHW format, BGR order to match PaddleOCR training data
+                inputArray[pixelIndex] = (b - mean[0]) / std[0]
                 inputArray[pixelIndex + resizedHeight * resizedWidth] = (g - mean[1]) / std[1]
-                inputArray[pixelIndex + 2 * resizedHeight * resizedWidth] = (b - mean[2]) / std[2]
+                inputArray[pixelIndex + 2 * resizedHeight * resizedWidth] = (r - mean[2]) / std[2]
                 pixelIndex++
             }
         }
@@ -90,17 +91,17 @@ class TextDetector(
     }
 
     private fun calculateResizeDimensions(width: Int, height: Int): Pair<Int, Int> {
-        val minSide = min(width, height)
-        val ratio = if (minSide < LIMIT_SIDE_LEN) {
-            LIMIT_SIDE_LEN.toFloat() / minSide
+        val maxSide = max(width, height)
+        val ratio = if (maxSide > LIMIT_SIDE_LEN) {
+            LIMIT_SIDE_LEN.toFloat() / maxSide
         } else {
             1.0f
         }
 
-        var resizedWidth = (width * ratio).toInt()
-        var resizedHeight = (height * ratio).toInt()
+        var resizedWidth = max(1, (width * ratio).roundToInt())
+        var resizedHeight = max(1, (height * ratio).roundToInt())
 
-        // Make dimensions multiple of 32
+        // Make dimensions multiple of 32 (minimum 32)
         resizedWidth = max(((resizedWidth + 31) / 32) * 32, 32)
         resizedHeight = max(((resizedHeight + 31) / 32) * 32, 32)
 
@@ -132,167 +133,194 @@ class TextDetector(
             }
         }
 
-        // Find contours
-        val contours = findContours(binaryMap)
-
-        // Convert contours to boxes
+        val components = extractConnectedComponents(binaryMap)
         val boxes = mutableListOf<TextBox>()
         val scaleX = originalWidth.toFloat() / resizedWidth
         val scaleY = originalHeight.toFloat() / resizedHeight
 
-        for (contour in contours) {
-            // Calculate box score
-            val score = calculateBoxScore(probMap, contour)
-            if (score < BOX_THRESH) continue
+        for (component in components) {
+            if (component.size < 4) continue
 
-            // Get minimum area rectangle
-            val rect = getMinAreaRect(contour)
+            val hull = convexHull(component)
+            if (hull.size < 3) continue
+
+            val rect = minimumAreaRectangle(hull, pointsAreConvex = true)
             if (rect.isEmpty()) continue
 
-            // CRITICAL: Unclip/expand the box (matching Python's unclip operation)
+            val score = calculateBoxScore(probMap, rect)
+            if (score < BOX_THRESH) continue
+
             val unclippedRect = unclipBox(rect, UNCLIP_RATIO)
             if (unclippedRect.isEmpty()) continue
 
-            // Check minimum size before scaling (use unclipped rect directly)
-            val minSide = getMinSide(unclippedRect)
-            if (minSide < MIN_SIZE + 2) continue
+            val clippedRect = ImageUtils.clipBoxToImageBounds(unclippedRect, resizedWidth, resizedHeight)
+            val minSide = getMinSide(clippedRect)
+            if (minSide < MIN_SIZE) continue
 
-            // Scale back to original image size (use unclipped rect directly)
-            val scaledPoints = unclippedRect.map { point ->
+            val scaledPoints = clippedRect.map { point ->
                 PointF(point.x * scaleX, point.y * scaleY)
             }
 
-            boxes.add(TextBox(scaledPoints))
+            val orderedPoints = ImageUtils.orderPointsClockwise(scaledPoints)
+            boxes.add(TextBox(orderedPoints))
         }
 
         return sortBoxes(boxes)
     }
+    private fun extractConnectedComponents(binaryMap: Array<BooleanArray>): List<List<PointF>> {
+        val height = binaryMap.size
+        val width = if (height > 0) binaryMap[0].size else 0
+        val visited = Array(height) { BooleanArray(width) }
+        val components = mutableListOf<List<PointF>>()
+        val stack = ArrayDeque<Pair<Int, Int>>()
 
-    private fun findContours(binaryMap: Array<BooleanArray>): List<List<PointF>> {
-        // Simplified contour finding - this is a basic implementation
-        // In production, you might want to use more sophisticated algorithms
-        val contours = mutableListOf<List<PointF>>()
-        val visited = Array(binaryMap.size) { BooleanArray(binaryMap[0].size) }
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                if (!binaryMap[y][x] || visited[y][x]) continue
 
-        for (y in binaryMap.indices) {
-            for (x in binaryMap[0].indices) {
-                if (binaryMap[y][x] && !visited[y][x]) {
-                    val contour = traceContour(binaryMap, visited, x, y)
-                    if (contour.size >= 4) {
-                        contours.add(contour)
+                val points = mutableListOf<PointF>()
+                stack.clear()
+                stack.add(Pair(x, y))
+                visited[y][x] = true
+
+                while (stack.isNotEmpty()) {
+                    val (cx, cy) = stack.removeLast()
+                    points.add(PointF(cx.toFloat(), cy.toFloat()))
+
+                    for (dy in -1..1) {
+                        for (dx in -1..1) {
+                            if (dx == 0 && dy == 0) continue
+                            val nx = cx + dx
+                            val ny = cy + dy
+                            if (nx in 0 until width && ny in 0 until height &&
+                                binaryMap[ny][nx] && !visited[ny][nx]
+                            ) {
+                                visited[ny][nx] = true
+                                stack.add(Pair(nx, ny))
+                            }
+                        }
                     }
                 }
+
+                components.add(points)
             }
         }
 
-        return contours
+        return components
     }
 
-    private fun traceContour(
-        binaryMap: Array<BooleanArray>,
-        visited: Array<BooleanArray>,
-        startX: Int,
-        startY: Int
-    ): List<PointF> {
-        val contour = mutableListOf<PointF>()
-        val stack = mutableListOf(Pair(startX, startY))
-        val points = mutableSetOf<Pair<Int, Int>>()
+    private fun calculateBoxScore(probMap: Array<FloatArray>, polygon: List<PointF>): Float {
+        if (polygon.isEmpty()) return 0f
 
-        while (stack.isNotEmpty()) {
-            val (x, y) = stack.removeAt(stack.lastIndex)
-            if (x < 0 || x >= binaryMap[0].size || y < 0 || y >= binaryMap.size) continue
-            if (!binaryMap[y][x] || visited[y][x]) continue
+        var minX = floor(polygon.minOf { it.x.toDouble() }).toInt()
+        var maxX = ceil(polygon.maxOf { it.x.toDouble() }).toInt()
+        var minY = floor(polygon.minOf { it.y.toDouble() }).toInt()
+        var maxY = ceil(polygon.maxOf { it.y.toDouble() }).toInt()
 
-            visited[y][x] = true
-            points.add(Pair(x, y))
+        minX = min(max(minX, 0), probMap[0].size - 1)
+        maxX = min(max(maxX, 0), probMap[0].size - 1)
+        minY = min(max(minY, 0), probMap.size - 1)
+        maxY = min(max(maxY, 0), probMap.size - 1)
 
-            // Check 8 neighbors
-            for (dy in -1..1) {
-                for (dx in -1..1) {
-                    if (dx == 0 && dy == 0) continue
-                    stack.add(Pair(x + dx, y + dy))
-                }
-            }
-        }
+        if (maxX < minX || maxY < minY) return 0f
 
-        // Convert to boundary points
-        for ((x, y) in points) {
-            var isBoundary = false
-            for (dy in -1..1) {
-                for (dx in -1..1) {
-                    if (dx == 0 && dy == 0) continue
-                    val nx = x + dx
-                    val ny = y + dy
-                    if (nx < 0 || nx >= binaryMap[0].size || ny < 0 || ny >= binaryMap.size || !binaryMap[ny][nx]) {
-                        isBoundary = true
-                        break
-                    }
-                }
-                if (isBoundary) break
-            }
-            if (isBoundary) {
-                contour.add(PointF(x.toFloat(), y.toFloat()))
-            }
-        }
-
-        return contour
-    }
-
-    private fun calculateBoxScore(probMap: Array<FloatArray>, contour: List<PointF>): Float {
-        if (contour.isEmpty()) return 0f
-
-        var minX = contour[0].x.toInt()
-        var maxX = minX
-        var minY = contour[0].y.toInt()
-        var maxY = minY
-
-        for (point in contour) {
-            val x = point.x.toInt()
-            val y = point.y.toInt()
-            minX = min(minX, x)
-            maxX = max(maxX, x)
-            minY = min(minY, y)
-            maxY = max(maxY, y)
-        }
-
-        // Clamp to map bounds
-        minX = max(0, minX)
-        maxX = min(probMap[0].size - 1, maxX)
-        minY = max(0, minY)
-        maxY = min(probMap.size - 1, maxY)
-
-        // Calculate mean score in bounding box
         var sum = 0f
         var count = 0
+
         for (y in minY..maxY) {
             for (x in minX..maxX) {
-                sum += probMap[y][x]
-                count++
+                if (isPointInsideQuad(x + 0.5f, y + 0.5f, polygon)) {
+                    sum += probMap[y][x]
+                    count++
+                }
             }
         }
 
         return if (count > 0) sum / count else 0f
     }
 
-    private fun getMinAreaRect(contour: List<PointF>): List<PointF> {
-        if (contour.size < 4) return emptyList()
+    private fun minimumAreaRectangle(points: List<PointF>, pointsAreConvex: Boolean = false): List<PointF> {
+        val hull = if (pointsAreConvex) points else convexHull(points)
+        if (hull.size < 3) return emptyList()
 
-        // Find the convex hull
-        val hull = convexHull(contour)
-        if (hull.size < 4) return hull
+        var bestRect: List<PointF> = emptyList()
+        var minArea = Float.MAX_VALUE
 
-        // For simplicity, return the 4 corners of the bounding box
-        // In production, you'd want to implement a proper minimum area rectangle algorithm
-        var minX = hull[0].x
-        var maxX = minX
-        var minY = hull[0].y
-        var maxY = minY
+        for (i in hull.indices) {
+            val p1 = hull[i]
+            val p2 = hull[(i + 1) % hull.size]
+            val edgeVec = normalizeVector(p1, p2) ?: continue
+            val normal = PointF(-edgeVec.y, edgeVec.x)
 
-        for (point in hull) {
-            minX = min(minX, point.x)
-            maxX = max(maxX, point.x)
-            minY = min(minY, point.y)
-            maxY = max(maxY, point.y)
+            var minProj = Float.MAX_VALUE
+            var maxProj = -Float.MAX_VALUE
+            var minOrth = Float.MAX_VALUE
+            var maxOrth = -Float.MAX_VALUE
+
+            for (pt in hull) {
+                val relX = pt.x - p1.x
+                val relY = pt.y - p1.y
+                val projection = relX * edgeVec.x + relY * edgeVec.y
+                val orthProjection = relX * normal.x + relY * normal.y
+
+                if (projection < minProj) minProj = projection
+                if (projection > maxProj) maxProj = projection
+                if (orthProjection < minOrth) minOrth = orthProjection
+                if (orthProjection > maxOrth) maxOrth = orthProjection
+            }
+
+            val width = maxProj - minProj
+            val height = maxOrth - minOrth
+            val area = width * height
+
+            if (area < minArea && width > 1e-3f && height > 1e-3f) {
+                minArea = area
+
+                val corner0 = PointF(
+                    p1.x + edgeVec.x * minProj + normal.x * minOrth,
+                    p1.y + edgeVec.y * minProj + normal.y * minOrth
+                )
+                val corner1 = PointF(
+                    p1.x + edgeVec.x * maxProj + normal.x * minOrth,
+                    p1.y + edgeVec.y * maxProj + normal.y * minOrth
+                )
+                val corner2 = PointF(
+                    p1.x + edgeVec.x * maxProj + normal.x * maxOrth,
+                    p1.y + edgeVec.y * maxProj + normal.y * maxOrth
+                )
+                val corner3 = PointF(
+                    p1.x + edgeVec.x * minProj + normal.x * maxOrth,
+                    p1.y + edgeVec.y * minProj + normal.y * maxOrth
+                )
+
+                bestRect = listOf(corner0, corner1, corner2, corner3)
+            }
+        }
+
+        return if (bestRect.isEmpty()) axisAlignedBoundingBox(hull) else bestRect
+    }
+
+    private fun normalizeVector(from: PointF, to: PointF): PointF? {
+        val dx = to.x - from.x
+        val dy = to.y - from.y
+        val length = sqrt(dx * dx + dy * dy)
+        if (length < 1e-6f) return null
+        return PointF(dx / length, dy / length)
+    }
+
+    private fun axisAlignedBoundingBox(points: List<PointF>): List<PointF> {
+        if (points.isEmpty()) return emptyList()
+
+        var minX = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+
+        for (point in points) {
+            if (point.x < minX) minX = point.x
+            if (point.x > maxX) maxX = point.x
+            if (point.y < minY) minY = point.y
+            if (point.y > maxY) maxY = point.y
         }
 
         return listOf(
@@ -301,6 +329,23 @@ class TextDetector(
             PointF(maxX, maxY),
             PointF(minX, maxY)
         )
+    }
+
+    private fun isPointInsideQuad(x: Float, y: Float, quad: List<PointF>): Boolean {
+        if (quad.size < 3) return false
+
+        var hasPositive = false
+        var hasNegative = false
+
+        for (i in quad.indices) {
+            val p1 = quad[i]
+            val p2 = quad[(i + 1) % quad.size]
+            val cross = (p2.x - p1.x) * (y - p1.y) - (p2.y - p1.y) * (x - p1.x)
+            if (cross > 0) hasPositive = true else if (cross < 0) hasNegative = true
+            if (hasPositive && hasNegative) return false
+        }
+
+        return true
     }
 
     private fun convexHull(points: List<PointF>): List<PointF> {
@@ -340,75 +385,81 @@ class TextDetector(
     }
 
     private fun sortBoxes(boxes: List<TextBox>): List<TextBox> {
-        // Sort boxes from top to bottom, left to right
-        return boxes.sortedWith(compareBy(
-            { it.points[0].y },
-            { it.points[0].x }
-        ))
+        if (boxes.isEmpty()) return emptyList()
+
+        val sortedByTop = boxes.sortedBy { box ->
+            box.points.minOf { it.y }
+        }
+
+        val ordered = mutableListOf<TextBox>()
+        var index = 0
+        while (index < sortedByTop.size) {
+            val current = sortedByTop[index]
+            val referenceY = current.points.minOf { it.y }
+            val group = mutableListOf<TextBox>()
+
+            var j = index
+            while (j < sortedByTop.size) {
+                val candidate = sortedByTop[j]
+                val candidateY = candidate.points.minOf { it.y }
+                if (abs(candidateY - referenceY) <= 10f) {
+                    group.add(candidate)
+                    j++
+                } else {
+                    break
+                }
+            }
+
+            group.sortBy { box -> box.points.minOf { it.x } }
+            ordered.addAll(group)
+            index = j
+        }
+
+        return ordered
     }
 
     private fun unclipBox(box: List<PointF>, unclipRatio: Float): List<PointF> {
-        // Calculate polygon area and perimeter
-        val area = calculatePolygonArea(box)
-        val perimeter = calculatePerimeter(box)
+        if (box.size != 4) return emptyList()
 
-        if (perimeter == 0f) return emptyList()
+        val width = distance(box[0], box[1])
+        val height = distance(box[0], box[3])
+        if (width <= 0f || height <= 0f) return emptyList()
 
-        // Calculate expansion distance (matching Python's pyclipper logic)
-        val distance = area * unclipRatio / perimeter
+        val area = width * height
+        val perimeter = 2f * (width + height)
+        if (perimeter <= 1e-6f) return box
 
-        // Expand polygon by moving each point outward along its normal
-        return expandPolygon(box, distance)
-    }
+        val offset = area * unclipRatio / perimeter
+        val newWidth = width + 2f * offset
+        val newHeight = height + 2f * offset
 
-    private fun calculatePolygonArea(points: List<PointF>): Float {
-        if (points.size < 3) return 0f
-        var area = 0f
-        for (i in points.indices) {
-            val j = (i + 1) % points.size
-            area += points[i].x * points[j].y
-            area -= points[j].x * points[i].y
-        }
-        return abs(area) / 2f
-    }
+        val centerX = box.sumOf { it.x.toDouble() }.toFloat() / box.size
+        val centerY = box.sumOf { it.y.toDouble() }.toFloat() / box.size
 
-    private fun calculatePerimeter(points: List<PointF>): Float {
-        if (points.size < 2) return 0f
-        var perimeter = 0f
-        for (i in points.indices) {
-            val j = (i + 1) % points.size
-            perimeter += distance(points[i], points[j])
-        }
-        return perimeter
-    }
+        val xAxis = normalizeVector(box[0], box[1]) ?: return emptyList()
+        val yAxis = normalizeVector(box[0], box[3]) ?: return emptyList()
 
-    private fun expandPolygon(points: List<PointF>, distance: Float): List<PointF> {
-        if (points.size < 3) return points
+        val halfWidth = newWidth / 2f
+        val halfHeight = newHeight / 2f
 
-        // Calculate centroid
-        var centerX = 0f
-        var centerY = 0f
-        for (point in points) {
-            centerX += point.x
-            centerY += point.y
-        }
-        centerX /= points.size
-        centerY /= points.size
+        val corner0 = PointF(
+            centerX - xAxis.x * halfWidth - yAxis.x * halfHeight,
+            centerY - xAxis.y * halfWidth - yAxis.y * halfHeight
+        )
+        val corner1 = PointF(
+            centerX + xAxis.x * halfWidth - yAxis.x * halfHeight,
+            centerY + xAxis.y * halfWidth - yAxis.y * halfHeight
+        )
+        val corner2 = PointF(
+            centerX + xAxis.x * halfWidth + yAxis.x * halfHeight,
+            centerY + xAxis.y * halfWidth + yAxis.y * halfHeight
+        )
+        val corner3 = PointF(
+            centerX - xAxis.x * halfWidth + yAxis.x * halfHeight,
+            centerY - xAxis.y * halfWidth + yAxis.y * halfHeight
+        )
 
-        // Expand each point away from centroid
-        return points.map { point ->
-            val dx = point.x - centerX
-            val dy = point.y - centerY
-            val len = sqrt(dx * dx + dy * dy)
-
-            if (len > 0) {
-                // Move point outward by distance
-                val scale = (len + distance) / len
-                PointF(centerX + dx * scale, centerY + dy * scale)
-            } else {
-                point
-            }
-        }
+        return listOf(corner0, corner1, corner2, corner3)
     }
 
     private fun getMinSide(box: List<PointF>): Float {
