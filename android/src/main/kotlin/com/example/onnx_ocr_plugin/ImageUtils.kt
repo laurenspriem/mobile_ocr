@@ -15,11 +15,11 @@ object ImageUtils {
         val width = max(
             distance(points[0], points[1]),  // top edge
             distance(points[2], points[3])   // bottom edge
-        ).roundToInt().coerceAtLeast(1)
+        ).toInt().coerceAtLeast(1)
         val height = max(
             distance(points[0], points[3]),  // left edge
             distance(points[1], points[2])   // right edge
-        ).roundToInt().coerceAtLeast(1)
+        ).toInt().coerceAtLeast(1)
 
         // Create destination points for perspective transform
         val dstPoints = floatArrayOf(
@@ -56,7 +56,7 @@ object ImageUtils {
                 mappedPoint[1] = y + 0.5f
                 inverse.mapPoints(mappedPoint)
 
-                pixels[y * width + x] = sampleBilinear(bitmap, mappedPoint[0], mappedPoint[1])
+                pixels[y * width + x] = sampleBicubic(bitmap, mappedPoint[0], mappedPoint[1])
             }
         }
 
@@ -184,45 +184,67 @@ object ImageUtils {
     }
 }
 
-private fun sampleBilinear(bitmap: Bitmap, x: Float, y: Float): Int {
+private fun sampleBicubic(bitmap: Bitmap, x: Float, y: Float): Int {
     val width = bitmap.width
     val height = bitmap.height
 
     val clampedX = x.coerceIn(0f, width - 1f)
     val clampedY = y.coerceIn(0f, height - 1f)
 
-    val x0 = floor(clampedX).toInt()
-    val x1 = min(x0 + 1, width - 1)
-    val y0 = floor(clampedY).toInt()
-    val y1 = min(y0 + 1, height - 1)
+    val xBase = floor(clampedX).toInt()
+    val yBase = floor(clampedY).toInt()
+    val tx = clampedX - xBase
+    val ty = clampedY - yBase
 
-    val dx = clampedX - x0
-    val dy = clampedY - y0
+    val intermediate = Array(4) { FloatArray(4) }
 
-    val c00 = bitmap.getPixel(x0, y0)
-    val c10 = bitmap.getPixel(x1, y0)
-    val c01 = bitmap.getPixel(x0, y1)
-    val c11 = bitmap.getPixel(x1, y1)
+    for (row in -1..2) {
+        val sampleY = (yBase + row).coerceIn(0, height - 1)
+        val rowIndex = row + 1
+        val channelSamples = Array(4) { FloatArray(4) }
+        for (col in -1..2) {
+            val sampleX = (xBase + col).coerceIn(0, width - 1)
+            val pixel = bitmap.getPixel(sampleX, sampleY)
+            val columnIndex = col + 1
+            channelSamples[0][columnIndex] = (pixel and 0xFF).toFloat()
+            channelSamples[1][columnIndex] = ((pixel shr 8) and 0xFF).toFloat()
+            channelSamples[2][columnIndex] = ((pixel shr 16) and 0xFF).toFloat()
+            channelSamples[3][columnIndex] = (pixel ushr 24).toFloat()
+        }
+        for (channel in 0 until 4) {
+            intermediate[channel][rowIndex] = cubicHermite(
+                channelSamples[channel][0],
+                channelSamples[channel][1],
+                channelSamples[channel][2],
+                channelSamples[channel][3],
+                tx
+            )
+        }
+    }
 
-    val a00 = 1 - dx
-    val a10 = dx
-    val a01 = 1 - dy
-    val a11 = dy
+    val resultChannels = FloatArray(4)
+    for (channel in 0 until 4) {
+        resultChannels[channel] = cubicHermite(
+            intermediate[channel][0],
+            intermediate[channel][1],
+            intermediate[channel][2],
+            intermediate[channel][3],
+            ty
+        ).coerceIn(0f, 255f)
+    }
 
-    val w00 = a00 * a01
-    val w10 = a10 * a01
-    val w01 = a00 * a11
-    val w11 = a10 * a11
+    val b = resultChannels[0].roundToInt()
+    val g = resultChannels[1].roundToInt()
+    val r = resultChannels[2].roundToInt()
+    val a = resultChannels[3].roundToInt()
 
-    val r = ((c00 shr 16 and 0xFF) * w00 + (c10 shr 16 and 0xFF) * w10 +
-            (c01 shr 16 and 0xFF) * w01 + (c11 shr 16 and 0xFF) * w11).roundToInt().coerceIn(0, 255)
-    val g = ((c00 shr 8 and 0xFF) * w00 + (c10 shr 8 and 0xFF) * w10 +
-            (c01 shr 8 and 0xFF) * w01 + (c11 shr 8 and 0xFF) * w11).roundToInt().coerceIn(0, 255)
-    val b = ((c00 and 0xFF) * w00 + (c10 and 0xFF) * w10 +
-            (c01 and 0xFF) * w01 + (c11 and 0xFF) * w11).roundToInt().coerceIn(0, 255)
+    return (a shl 24) or (r shl 16) or (g shl 8) or b
+}
 
-    val alpha = ((c00 ushr 24) * w00 + (c10 ushr 24) * w10 +
-            (c01 ushr 24) * w01 + (c11 ushr 24) * w11).roundToInt().coerceIn(0, 255)
-
-    return (alpha shl 24) or (r shl 16) or (g shl 8) or b
+private fun cubicHermite(p0: Float, p1: Float, p2: Float, p3: Float, t: Float): Float {
+    val a = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3
+    val b = p0 - 2.5f * p1 + 2f * p2 - 0.5f * p3
+    val c = -0.5f * p0 + 0.5f * p2
+    val d = p1
+    return ((a * t + b) * t + c) * t + d
 }

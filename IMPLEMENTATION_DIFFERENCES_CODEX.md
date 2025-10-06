@@ -4,7 +4,7 @@
 - ✅ **Color channel order mismatch** – detection, recognition, and classification preprocessors now feed BGR tensors to ONNX (`android/src/main/kotlin/com/example/onnx_ocr_plugin/TextDetector.kt:73`, `TextRecognizer.kt:112`, `TextClassifier.kt:100`). This aligns us with the PaddleOCR training statistics used in the Python reference.
 - ✅ **Detection geometry** – connected components are traced, converted to convex hulls, and fed through a rotating-calipers minimum-area rectangle implementation before scaling back to the source image (`TextDetector.kt:166-300`). Boxes are ordered with the same vertical grouping heuristic that the Python pipeline uses.
 - ✅ **Unclip and contour handling** – instead of centroid scaling, rectangles are expanded using the PaddleOCR area/perimeter heuristic and then clamped to image bounds (`TextDetector.kt:421-463`). This mirrors pyclipper’s expansion behaviour for quadrilaterals.
-- ✅ **Perspective crop quality** – crops are generated with an explicit inverse perspective warp and bilinear sampling with replicate borders (`ImageUtils.kt:8-82`, `ImageUtils.kt:187-214`). This matches the behaviour of `cv2.warpPerspective(..., INTER_CUBIC, BORDER_REPLICATE)` closely enough for our test set.
+- ✅ **Perspective crop quality** – crops now use an inverse perspective warp with Catmull–Rom bicubic sampling and replicate borders (`ImageUtils.kt:8-214`), closely mirroring `cv2.warpPerspective(..., INTER_CUBIC, BORDER_REPLICATE)`.
 - ✅ **Angle classifier heuristics** – the native pipeline loads the classifier by default and runs it only when heuristics trigger (aspect ratio <0.5 or recognition confidence <0.65), staying lightweight while matching Python’s optional `use_angle_cls` (`OcrProcessor.kt:16-155`).
 - ✅ **Large-image guard** – detector preprocessing now enforces the PaddleOCR `limit_side_len` rule on the longest side before rounding to multiples of 32 (`TextDetector.kt:93-108`).
 
@@ -38,7 +38,7 @@
 
 ### Text Recognition
 19. [Resolved] **Color order** – Recognition preprocessing follows the same BGR channel ordering as detection (`TextRecognizer.kt:112-119`).
-20. [Resolved] **Dynamic width & padding** – Batch width now matches Python’s `sorted_imgs` logic, using per-batch ratios, zero padding beyond the resized crop, and minimal blank space (`TextRecognizer.kt:56-128`).
+20. [Resolved] **Dynamic width & padding** – Batch width now matches Python’s `sorted_imgs` logic, using per-batch ratios, zero padding beyond the resized crop, and minimal blank space (`TextRecognizer.kt:52-127`).
 21. [Parity] **CTC decoding & dictionary** – The Kotlin decoder mirrors Python’s blank/repeat removal and uses the same dictionary loading (space appended, blank prepended).
 
 ### Pipeline Control & Error Handling
