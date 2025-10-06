@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import ai.onnxruntime.*
 import java.nio.FloatBuffer
+import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 class TextClassifier(
     private val session: OrtSession,
@@ -78,7 +80,10 @@ class TextClassifier(
     ) {
         // Calculate resize dimensions maintaining aspect ratio
         val aspectRatio = bitmap.width.toFloat() / bitmap.height
-        val resizedWidth = minOf((IMG_HEIGHT * aspectRatio).toInt(), IMG_WIDTH)
+        val resizedWidth = minOf(
+            ceil(IMG_HEIGHT * aspectRatio).toInt().coerceAtLeast(1),
+            IMG_WIDTH
+        )
 
         // Resize bitmap
         val resizedBitmap = Bitmap.createScaledBitmap(bitmap, resizedWidth, IMG_HEIGHT, true)
@@ -91,25 +96,28 @@ class TextClassifier(
         // Normalize and convert to CHW format
         val baseOffset = batchIndex * 3 * IMG_HEIGHT * IMG_WIDTH
 
+        val channelStride = IMG_HEIGHT * IMG_WIDTH
+
         for (y in 0 until IMG_HEIGHT) {
+            val rowOffset = y * IMG_WIDTH
+            val sourceRowOffset = y * resizedWidth
+
             for (x in 0 until IMG_WIDTH) {
-                val pixelIndex = y * IMG_WIDTH + x
+                val pixelIndex = rowOffset + x
 
                 if (x < resizedWidth) {
-                    val pixel = pixels[y * resizedWidth + x]
+                    val pixel = pixels[sourceRowOffset + x]
                     val b = (pixel and 0xFF) / 255.0f
                     val g = ((pixel shr 8) and 0xFF) / 255.0f
                     val r = ((pixel shr 16) and 0xFF) / 255.0f
 
-                    // Normalize: (value - 0.5) / 0.5, preserving BGR channel order
                     outputArray[baseOffset + pixelIndex] = (b - 0.5f) / 0.5f
-                    outputArray[baseOffset + IMG_HEIGHT * IMG_WIDTH + pixelIndex] = (g - 0.5f) / 0.5f
-                    outputArray[baseOffset + 2 * IMG_HEIGHT * IMG_WIDTH + pixelIndex] = (r - 0.5f) / 0.5f
+                    outputArray[baseOffset + channelStride + pixelIndex] = (g - 0.5f) / 0.5f
+                    outputArray[baseOffset + 2 * channelStride + pixelIndex] = (r - 0.5f) / 0.5f
                 } else {
-                    // Padding with zeros
                     outputArray[baseOffset + pixelIndex] = 0f
-                    outputArray[baseOffset + IMG_HEIGHT * IMG_WIDTH + pixelIndex] = 0f
-                    outputArray[baseOffset + 2 * IMG_HEIGHT * IMG_WIDTH + pixelIndex] = 0f
+                    outputArray[baseOffset + channelStride + pixelIndex] = 0f
+                    outputArray[baseOffset + 2 * channelStride + pixelIndex] = 0f
                 }
             }
         }

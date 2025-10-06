@@ -5,7 +5,7 @@
 - ✅ **Detection geometry** – connected components are traced, converted to convex hulls, and fed through a rotating-calipers minimum-area rectangle implementation before scaling back to the source image (`TextDetector.kt:166-300`). Boxes are ordered with the same vertical grouping heuristic that the Python pipeline uses.
 - ✅ **Unclip and contour handling** – instead of centroid scaling, rectangles are expanded using the PaddleOCR area/perimeter heuristic and then clamped to image bounds (`TextDetector.kt:421-463`). This mirrors pyclipper’s expansion behaviour for quadrilaterals.
 - ✅ **Perspective crop quality** – crops are generated with an explicit inverse perspective warp and bilinear sampling with replicate borders (`ImageUtils.kt:8-82`, `ImageUtils.kt:187-214`). This matches the behaviour of `cv2.warpPerspective(..., INTER_CUBIC, BORDER_REPLICATE)` closely enough for our test set.
-- ✅ **Angle classifier toggle** – angle classification is now optional. The default constructor disables it (matching `use_angle_cls=False` in Python) and only loads the classifier model when explicitly requested (`OcrProcessor.kt:20-137`).
+- ✅ **Angle classifier heuristics** – the native pipeline loads the classifier by default and runs it only when heuristics trigger (aspect ratio <0.5 or recognition confidence <0.65), staying lightweight while matching Python’s optional `use_angle_cls` (`OcrProcessor.kt:16-155`).
 - ✅ **Large-image guard** – detector preprocessing now enforces the PaddleOCR `limit_side_len` rule on the longest side before rounding to multiples of 32 (`TextDetector.kt:93-108`).
 
 ## Detailed Differences
@@ -32,19 +32,19 @@
 15. [Resolved] **Rotation heuristic** – The 90° correction is preserved post-warp; behaviour matches Python’s `np.rot90` branch for tall crops (`ImageUtils.kt:65-78`).
 
 ### Angle Classification
-16. [Resolved] **Always-on classifier** – Angle classification is optional and disabled by default (`OcrProcessor.kt:20-137`).
+16. [Resolved] **Heuristic triggering** – Classification runs only for aspect-ratio outliers or low-confidence recognitions, retaining whichever recognition score is higher to avoid regressions (`OcrProcessor.kt:84-146`).
 17. [Open] **Batch ordering** – Kotlin still processes classifier batches in input order. Reference sorts by aspect ratio first; consider mirroring if accuracy gaps resurface.
 18. [Open] **Returned metadata** – We still return only rotated bitmaps. Python exposes classification labels/scores for debugging; add if diagnostic visibility becomes necessary.
 
 ### Text Recognition
 19. [Resolved] **Color order** – Recognition preprocessing follows the same BGR channel ordering as detection (`TextRecognizer.kt:112-119`).
-20. [Parity] **Batch width calculation** – Both implementations maintain height 48, pad to the widest crop in the batch, and cap width at 320.
+20. [Resolved] **Dynamic width & padding** – Batch width now matches Python’s `sorted_imgs` logic, using per-batch ratios, zero padding beyond the resized crop, and minimal blank space (`TextRecognizer.kt:56-128`).
 21. [Parity] **CTC decoding & dictionary** – The Kotlin decoder mirrors Python’s blank/repeat removal and uses the same dictionary loading (space appended, blank prepended).
 
 ### Pipeline Control & Error Handling
 24. [Open] **Detector/classifier reuse** – `OcrProcessor` still instantiates helper objects per request (`OcrProcessor.kt:107-126`). Consider caching if profiling shows churn.
 25. [Resolved] **Bounds protection** – Vertices are clamped before cropping/drawing, preventing OOB errors (`TextDetector.kt:421-462`, `ImageUtils.kt:147-158`).
-26. [Open] **Model toggles** – Angle classification default now matches Python, but thresholds/score modes remain hardcoded. Future work: expose these through the Flutter API (`OcrProcessor.kt:20-137`).
+26. [Open] **Model toggles** – Angle classification heuristics now live in Kotlin, yet detection thresholds/score modes remain hardcoded. Future work: expose these through the Flutter API for experimentation (`OcrProcessor.kt:13-155`).
 27. [Parity] **Drop score** – Both sides use 0.5 as the default recognition confidence cut-off.
 
 ### Miscellaneous
@@ -63,7 +63,7 @@
 ### Upcoming Focus Areas
 1. **Expose tuning knobs** – Surface detection thresholds, scoring modes, and optional angle classification through the Flutter API so future experiments do not require native changes.
 2. **Performance profiling** – Measure the impact of per-request helper instantiation and consider caching ONNX tensors/buffers if GC pressure becomes visible on large batches.
-3. **Diagnostics & tooling** – Provide hooks to return classifier confidences, save intermediate crops, or emit debug overlays to match the Python tooling experience.
+3. **Diagnostics & tooling** – DebugOptions now allow optional crop dumps/logging (default off); next step is surfacing classifier confidences or overlay data to Flutter when needed.
 4. **Candidate/throughput controls** – Evaluate whether replicating `max_candidates` or classifier batch sorting brings measurable gains once accuracy is confirmed on-device.
 
 ### Stage 3 – Verification & Regression Harness (Week 3)

@@ -51,10 +51,10 @@ class TextRecognizer(
 
         // Calculate max width-height ratio for the batch
         val maxWhRatio = batchImages.maxOf {
-            max(IMG_WIDTH.toFloat() / IMG_HEIGHT, it.width.toFloat() / it.height)
+            (it.width.toFloat() / it.height).coerceAtLeast(1f)
         }
 
-        val actualWidth = (IMG_HEIGHT * maxWhRatio).toInt().coerceAtMost(IMG_WIDTH)
+        val actualWidth = ceil(IMG_HEIGHT * maxWhRatio).toInt().coerceIn(1, IMG_WIDTH)
 
         // Prepare batch input
         val batchSize = batchImages.size
@@ -90,7 +90,10 @@ class TextRecognizer(
     ) {
         // Calculate resize dimensions maintaining aspect ratio
         val aspectRatio = bitmap.width.toFloat() / bitmap.height
-        val resizedWidth = min((IMG_HEIGHT * aspectRatio).toInt(), targetWidth)
+        val resizedWidth = min(
+            ceil(IMG_HEIGHT * aspectRatio).toInt().coerceAtLeast(1),
+            targetWidth
+        )
 
         // Resize bitmap
         val resizedBitmap = Bitmap.createScaledBitmap(bitmap, resizedWidth, IMG_HEIGHT, true)
@@ -103,25 +106,28 @@ class TextRecognizer(
         // Normalize and convert to CHW format
         val baseOffset = batchIndex * 3 * IMG_HEIGHT * targetWidth
 
+        val channelStride = IMG_HEIGHT * targetWidth
+
         for (y in 0 until IMG_HEIGHT) {
+            val rowOffset = y * targetWidth
+            val sourceRowOffset = y * resizedWidth
+
             for (x in 0 until targetWidth) {
-                val pixelIndex = y * targetWidth + x
+                val pixelIndex = rowOffset + x
 
                 if (x < resizedWidth) {
-                    val pixel = pixels[y * resizedWidth + x]
+                    val pixel = pixels[sourceRowOffset + x]
                     val b = (pixel and 0xFF) / 255.0f
                     val g = ((pixel shr 8) and 0xFF) / 255.0f
                     val r = ((pixel shr 16) and 0xFF) / 255.0f
 
-                    // Normalize: (value - 0.5) / 0.5, preserving BGR channel order
                     outputArray[baseOffset + pixelIndex] = (b - 0.5f) / 0.5f
-                    outputArray[baseOffset + IMG_HEIGHT * targetWidth + pixelIndex] = (g - 0.5f) / 0.5f
-                    outputArray[baseOffset + 2 * IMG_HEIGHT * targetWidth + pixelIndex] = (r - 0.5f) / 0.5f
+                    outputArray[baseOffset + channelStride + pixelIndex] = (g - 0.5f) / 0.5f
+                    outputArray[baseOffset + 2 * channelStride + pixelIndex] = (r - 0.5f) / 0.5f
                 } else {
-                    // Padding with zeros
                     outputArray[baseOffset + pixelIndex] = 0f
-                    outputArray[baseOffset + IMG_HEIGHT * targetWidth + pixelIndex] = 0f
-                    outputArray[baseOffset + 2 * IMG_HEIGHT * targetWidth + pixelIndex] = 0f
+                    outputArray[baseOffset + channelStride + pixelIndex] = 0f
+                    outputArray[baseOffset + 2 * channelStride + pixelIndex] = 0f
                 }
             }
         }
