@@ -50,6 +50,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   OcrResult? _ocrResult;
   bool _isProcessing = false;
   bool _showTextOverlay = false;
+  bool _includeAllConfidenceScores = false;
   TextResult? _selectedText;
   String _platformVersion = 'Unknown';
   Size? _imageOriginalSize;
@@ -265,7 +266,10 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     });
 
     try {
-      final result = await _ocrPlugin.detectText(_imageBytes!);
+      final result = await _ocrPlugin.detectText(
+        _imageBytes!,
+        includeAllConfidenceScores: _includeAllConfidenceScores,
+      );
       setState(() {
         _ocrResult = result;
         _showTextOverlay = true;
@@ -582,6 +586,31 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                       ],
                     ),
                   ),
+                const SizedBox(height: 8),
+                // Low confidence toggle
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
+                      const SizedBox(width: 8),
+                      const Text('Include low confidence (<80%)'),
+                      Switch(
+                        value: _includeAllConfidenceScores,
+                        onChanged: (value) {
+                          setState(() {
+                            _includeAllConfidenceScores = value;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 8),
                 // Test image navigation
                 Container(

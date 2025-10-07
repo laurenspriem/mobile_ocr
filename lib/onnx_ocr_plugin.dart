@@ -12,8 +12,17 @@ class OnnxOcrPlugin {
   ///
   /// Takes a [Uint8List] representing the image data (PNG/JPEG format)
   /// Returns an [OcrResult] containing detected text boxes, recognized text, and confidence scores
-  Future<OcrResult> detectText(Uint8List imageData) async {
-    final result = await OnnxOcrPluginPlatform.instance.detectText(imageData);
+  ///
+  /// By default, only returns results with confidence >= 0.8
+  /// Set [includeAllConfidenceScores] to true to include results with confidence >= 0.5
+  Future<OcrResult> detectText(
+    Uint8List imageData, {
+    bool includeAllConfidenceScores = false,
+  }) async {
+    final result = await OnnxOcrPluginPlatform.instance.detectText(
+      imageData,
+      includeAllConfidenceScores: includeAllConfidenceScores,
+    );
     return OcrResult.fromMap(result);
   }
 

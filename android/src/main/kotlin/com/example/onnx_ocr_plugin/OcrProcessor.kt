@@ -31,7 +31,8 @@ class OcrProcessor(
     private val debugOptions: DebugOptions = DebugOptions()
 ) {
     companion object {
-        private const val MIN_RECOGNITION_SCORE = 0.5f
+        private const val MIN_RECOGNITION_SCORE = 0.8f
+        private const val FALLBACK_MIN_RECOGNITION_SCORE = 0.5f
         private const val ANGLE_ASPECT_RATIO_THRESHOLD = 0.5f
         private const val LOW_CONFIDENCE_THRESHOLD = 0.65f
         private const val DEBUG_TAG = "OnnxOcrDebug"
@@ -84,7 +85,7 @@ class OcrProcessor(
         }
     }
 
-    fun processImage(bitmap: Bitmap): OcrResult {
+    fun processImage(bitmap: Bitmap, includeAllConfidenceScores: Boolean = false): OcrResult {
         // Step 1: Text Detection
         val detectionResult = detectText(bitmap)
 
@@ -136,13 +137,14 @@ class OcrProcessor(
         }
 
         // Step 4: Filter by confidence score
+        val minThreshold = if (includeAllConfidenceScores) FALLBACK_MIN_RECOGNITION_SCORE else MIN_RECOGNITION_SCORE
         val filteredResults = mutableListOf<TextBox>()
         val filteredTexts = mutableListOf<String>()
         val filteredScores = mutableListOf<Float>()
 
         for (i in recognitionResults.indices) {
             val (text, score) = recognitionResults[i]
-            if (score >= MIN_RECOGNITION_SCORE) {
+            if (score >= minThreshold) {
                 filteredResults.add(detectionResult[i])
                 filteredTexts.add(text)
                 filteredScores.add(score)

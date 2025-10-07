@@ -44,10 +44,12 @@ class OnnxOcrPlugin: FlutterPlugin, MethodCallHandler {
           return
         }
 
+        val includeAllConfidenceScores = call.argument<Boolean>("includeAllConfidenceScores") ?: false
+
         mainScope.launch {
           try {
             val ocrResult = withContext(Dispatchers.IO) {
-              processImage(imageData)
+              processImage(imageData, includeAllConfidenceScores)
             }
             result.success(ocrResult)
           } catch (e: Exception) {
@@ -64,7 +66,7 @@ class OnnxOcrPlugin: FlutterPlugin, MethodCallHandler {
     }
   }
 
-  private suspend fun processImage(imageData: ByteArray): Map<String, Any> {
+  private suspend fun processImage(imageData: ByteArray, includeAllConfidenceScores: Boolean = false): Map<String, Any> {
     val processor = ocrProcessor ?: throw IllegalStateException("OCR processor not initialized")
 
     // Decode image
@@ -72,7 +74,7 @@ class OnnxOcrPlugin: FlutterPlugin, MethodCallHandler {
         ?: throw IllegalArgumentException("Failed to decode image")
 
     // Process with OCR
-    val ocrResults = processor.processImage(bitmap)
+    val ocrResults = processor.processImage(bitmap, includeAllConfidenceScores)
 
     // Convert results to Flutter-compatible format
     val results = mutableMapOf<String, Any>()

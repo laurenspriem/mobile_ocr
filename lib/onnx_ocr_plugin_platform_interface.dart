@@ -29,7 +29,10 @@ abstract class OnnxOcrPluginPlatform extends PlatformInterface {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
 
-  Future<Map<dynamic, dynamic>> detectText(Uint8List imageData) {
+  Future<Map<dynamic, dynamic>> detectText(
+    Uint8List imageData, {
+    bool includeAllConfidenceScores = false,
+  }) {
     throw UnimplementedError('detectText() has not been implemented.');
   }
 }

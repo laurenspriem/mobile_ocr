@@ -18,10 +18,16 @@ class MethodChannelOnnxOcrPlugin extends OnnxOcrPluginPlatform {
   }
 
   @override
-  Future<Map<dynamic, dynamic>> detectText(Uint8List imageData) async {
+  Future<Map<dynamic, dynamic>> detectText(
+    Uint8List imageData, {
+    bool includeAllConfidenceScores = false,
+  }) async {
     final result = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
       'detectText',
-      {'imageData': imageData},
+      {
+        'imageData': imageData,
+        'includeAllConfidenceScores': includeAllConfidenceScores,
+      },
     );
     return result ?? {};
   }
