@@ -17,30 +17,23 @@ class TextRecognizer(
     }
 
     fun recognize(images: List<Bitmap>): List<Pair<String, Float>> {
-        val results = mutableListOf<Pair<String, Float>>()
-
-        // Sort images by aspect ratio for efficient batching
-        val imageWithIndices = images.mapIndexed { index, image ->
-            IndexedValue(index, image)
-        }.sortedBy { it.value.width.toFloat() / it.value.height }
-
-        // Process in batches
-        for (i in imageWithIndices.indices step BATCH_SIZE) {
-            val batchEnd = min(i + BATCH_SIZE, imageWithIndices.size)
-            val batch = imageWithIndices.subList(i, batchEnd)
-
-            val batchResults = processBatch(batch.map { it.value })
-
-            // Store results with original indices
-            for (j in batch.indices) {
-                results.add(batchResults[j])
-            }
+        if (images.isEmpty()) {
+            return emptyList()
         }
 
-        // Reorder results to match original image order
+        val widthList = images.map { it.width.toFloat() / it.height }
+        val sortedIndices = widthList.indices.sortedBy { widthList[it] }
         val orderedResults = MutableList(images.size) { "" to 0f }
-        imageWithIndices.forEachIndexed { batchIndex, indexedImage ->
-            orderedResults[indexedImage.index] = results[batchIndex]
+
+        for (start in sortedIndices.indices step BATCH_SIZE) {
+            val end = min(start + BATCH_SIZE, sortedIndices.size)
+            val batchIndices = sortedIndices.subList(start, end)
+            val batchBitmaps = batchIndices.map { images[it] }
+            val batchResults = processBatch(batchBitmaps)
+
+            batchIndices.forEachIndexed { idx, originalIndex ->
+                orderedResults[originalIndex] = batchResults[idx]
+            }
         }
 
         return orderedResults
@@ -49,23 +42,27 @@ class TextRecognizer(
     private fun processBatch(batchImages: List<Bitmap>): List<Pair<String, Float>> {
         if (batchImages.isEmpty()) return emptyList()
 
-        // Calculate max width-height ratio for the batch
-        val maxWhRatio = batchImages.maxOf {
-            (it.width.toFloat() / it.height).coerceAtLeast(1f)
+        // Calculate max width-height ratio for the batch (baseline ratio aligns with Python implementation)
+        var maxWhRatio = IMG_WIDTH.toFloat() / IMG_HEIGHT
+        for (image in batchImages) {
+            val ratio = image.width.toFloat() / image.height
+            if (ratio > maxWhRatio) {
+                maxWhRatio = ratio
+            }
         }
 
-        val actualWidth = ceil(IMG_HEIGHT * maxWhRatio).toInt().coerceIn(1, IMG_WIDTH)
+        val targetWidth = ceil(IMG_HEIGHT * maxWhRatio).toInt().coerceAtLeast(1)
 
         // Prepare batch input
         val batchSize = batchImages.size
-        val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * actualWidth)
+        val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * targetWidth)
 
         for ((index, image) in batchImages.withIndex()) {
-            preprocessImage(image, inputArray, index, actualWidth)
+            preprocessImage(image, inputArray, index, targetWidth)
         }
 
         // Create tensor
-        val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), actualWidth.toLong())
+        val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), targetWidth.toLong())
         val inputTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(inputArray), shape)
 
         // Run inference

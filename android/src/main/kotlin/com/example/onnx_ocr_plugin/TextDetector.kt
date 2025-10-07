@@ -17,6 +17,8 @@ class TextDetector(
         private const val BOX_THRESH = 0.6f
         private const val UNCLIP_RATIO = 1.5f
         private const val MIN_SIZE = 3
+        private const val MAX_CANDIDATES = 1000
+        private const val EPSILON = 1e-6f
     }
 
     fun detect(bitmap: Bitmap): List<TextBox> {
@@ -134,6 +136,8 @@ class TextDetector(
         }
 
         val components = extractConnectedComponents(binaryMap)
+            .sortedByDescending { it.size }
+            .take(MAX_CANDIDATES)
         val boxes = mutableListOf<TextBox>()
         val scaleX = originalWidth.toFloat() / resizedWidth
         val scaleY = originalHeight.toFloat() / resizedHeight
@@ -150,12 +154,16 @@ class TextDetector(
             val score = calculateBoxScore(probMap, rect)
             if (score < BOX_THRESH) continue
 
-            val unclippedRect = unclipBox(rect, UNCLIP_RATIO)
-            if (unclippedRect.isEmpty()) continue
+            val unclippedPolygon = unclipBox(rect, UNCLIP_RATIO)
+            if (unclippedPolygon.isEmpty()) continue
 
-            val clippedRect = ImageUtils.clipBoxToImageBounds(unclippedRect, resizedWidth, resizedHeight)
-            val minSide = getMinSide(clippedRect)
+            val expandedRect = minimumAreaRectangle(unclippedPolygon, pointsAreConvex = false)
+            if (expandedRect.isEmpty()) continue
+
+            val minSide = getMinSide(expandedRect)
             if (minSide < MIN_SIZE) continue
+
+            val clippedRect = ImageUtils.clipBoxToImageBounds(expandedRect, resizedWidth, resizedHeight)
 
             val scaledPoints = clippedRect.map { point ->
                 PointF(point.x * scaleX, point.y * scaleY)
@@ -419,55 +427,100 @@ class TextDetector(
     }
 
     private fun unclipBox(box: List<PointF>, unclipRatio: Float): List<PointF> {
-        if (box.size != 4) return emptyList()
+        if (box.size < 3) return emptyList()
 
-        val width = distance(box[0], box[1])
-        val height = distance(box[0], box[3])
-        if (width <= 0f || height <= 0f) return emptyList()
+        val area = polygonSignedArea(box)
+        val perimeter = polygonPerimeter(box)
+        if (perimeter <= EPSILON) return emptyList()
 
-        val area = width * height
-        val perimeter = 2f * (width + height)
-        if (perimeter <= 1e-6f) return box
+        val offset = kotlin.math.abs(area) * unclipRatio / perimeter
+        if (offset <= EPSILON) return box
 
-        val offset = area * unclipRatio / perimeter
-        val newWidth = width + 2f * offset
-        val newHeight = height + 2f * offset
-
-        val centerX = box.sumOf { it.x.toDouble() }.toFloat() / box.size
-        val centerY = box.sumOf { it.y.toDouble() }.toFloat() / box.size
-
-        val xAxis = normalizeVector(box[0], box[1]) ?: return emptyList()
-        val yAxis = normalizeVector(box[0], box[3]) ?: return emptyList()
-
-        val halfWidth = newWidth / 2f
-        val halfHeight = newHeight / 2f
-
-        val corner0 = PointF(
-            centerX - xAxis.x * halfWidth - yAxis.x * halfHeight,
-            centerY - xAxis.y * halfWidth - yAxis.y * halfHeight
-        )
-        val corner1 = PointF(
-            centerX + xAxis.x * halfWidth - yAxis.x * halfHeight,
-            centerY + xAxis.y * halfWidth - yAxis.y * halfHeight
-        )
-        val corner2 = PointF(
-            centerX + xAxis.x * halfWidth + yAxis.x * halfHeight,
-            centerY + xAxis.y * halfWidth + yAxis.y * halfHeight
-        )
-        val corner3 = PointF(
-            centerX - xAxis.x * halfWidth + yAxis.x * halfHeight,
-            centerY - xAxis.y * halfWidth + yAxis.y * halfHeight
-        )
-
-        return listOf(corner0, corner1, corner2, corner3)
+        val expanded = offsetPolygon(box, offset)
+        return if (expanded.size >= 3) expanded else emptyList()
     }
 
     private fun getMinSide(box: List<PointF>): Float {
-        if (box.size < 4) return 0f
-        val width1 = distance(box[0], box[1])
-        val width2 = distance(box[2], box[3])
-        val height1 = distance(box[0], box[3])
-        val height2 = distance(box[1], box[2])
-        return min(min(width1, width2), min(height1, height2))
+        if (box.size < 2) return 0f
+        var minSide = Float.MAX_VALUE
+        for (i in box.indices) {
+            val next = (i + 1) % box.size
+            val length = distance(box[i], box[next])
+            if (length < minSide) {
+                minSide = length
+            }
+        }
+        return if (minSide == Float.MAX_VALUE) 0f else minSide
+    }
+
+    private fun polygonSignedArea(points: List<PointF>): Float {
+        var area = 0f
+        for (i in points.indices) {
+            val j = (i + 1) % points.size
+            area += points[i].x * points[j].y - points[j].x * points[i].y
+        }
+        return area / 2f
+    }
+
+    private fun polygonPerimeter(points: List<PointF>): Float {
+        var perimeter = 0f
+        for (i in points.indices) {
+            val j = (i + 1) % points.size
+            perimeter += distance(points[i], points[j])
+        }
+        return perimeter
+    }
+
+    private fun offsetPolygon(points: List<PointF>, offset: Float): List<PointF> {
+        val count = points.size
+        if (count < 3) return emptyList()
+
+        val isCounterClockwise = polygonSignedArea(points) > 0f
+        val result = ArrayList<PointF>(count)
+
+        for (i in 0 until count) {
+            val prev = points[(i - 1 + count) % count]
+            val curr = points[i]
+            val next = points[(i + 1) % count]
+
+            val edge1 = PointF(curr.x - prev.x, curr.y - prev.y)
+            val edge2 = PointF(next.x - curr.x, next.y - curr.y)
+
+            val dir1 = normalize(edge1) ?: continue
+            val dir2 = normalize(edge2) ?: continue
+
+            val normal1 = if (isCounterClockwise) PointF(dir1.y, -dir1.x) else PointF(-dir1.y, dir1.x)
+            val normal2 = if (isCounterClockwise) PointF(dir2.y, -dir2.x) else PointF(-dir2.y, dir2.x)
+
+            val offsetPoint1 = PointF(curr.x + normal1.x * offset, curr.y + normal1.y * offset)
+            val offsetPoint2 = PointF(curr.x + normal2.x * offset, curr.y + normal2.y * offset)
+
+            val intersection = intersectLines(offsetPoint1, dir1, offsetPoint2, dir2)
+            result.add(intersection ?: PointF(curr.x, curr.y))
+        }
+
+        return result
+    }
+
+    private fun normalize(vector: PointF): PointF? {
+        val length = sqrt(vector.x * vector.x + vector.y * vector.y)
+        if (length < EPSILON) return null
+        return PointF(vector.x / length, vector.y / length)
+    }
+
+    private fun intersectLines(point: PointF, direction: PointF, otherPoint: PointF, otherDirection: PointF): PointF? {
+        val cross = direction.x * otherDirection.y - direction.y * otherDirection.x
+        if (abs(cross) < EPSILON) {
+            return null
+        }
+
+        val diffX = otherPoint.x - point.x
+        val diffY = otherPoint.y - point.y
+        val t = (diffX * otherDirection.y - diffY * otherDirection.x) / cross
+
+        return PointF(
+            point.x + direction.x * t,
+            point.y + direction.y * t
+        )
     }
 }
