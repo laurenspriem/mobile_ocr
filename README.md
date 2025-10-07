@@ -82,6 +82,13 @@ Currently supports:
 - ✅ Android (API 21+)
 - ⬜ iOS (coming soon)
 
+## Acknowledgments
+
+This work would not be possible without:
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) - The original OCR models and algorithms
+- [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) - ONNX implementation and pipeline architecture
+- [RapidOCR](https://github.com/RapidAI/RapidOCR) - ONNX model optimization work
+
 ## License
 
 This plugin is released under the MIT License. The ONNX models are derived from PaddleOCR and follow their licensing terms.
