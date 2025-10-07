@@ -7,7 +7,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
-import 'package:onnx_ocr_plugin/onnx_ocr_plugin.dart';
+import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
 import 'package:image_picker/image_picker.dart';
 
 // Feature flag: Set to true to enable automatic cycling through test images
@@ -42,7 +42,7 @@ class OcrDemoPage extends StatefulWidget {
 }
 
 class _OcrDemoPageState extends State<OcrDemoPage> {
-  final _ocrPlugin = OnnxOcrPlugin();
+  final _ocrPlugin = OnnxMobileOcr();
   final ImagePicker _picker = ImagePicker();
 
   File? _imageFile;

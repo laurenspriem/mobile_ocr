@@ -1,29 +1,39 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:onnx_ocr_plugin/onnx_ocr_plugin.dart';
-import 'package:onnx_ocr_plugin/onnx_ocr_plugin_platform_interface.dart';
-import 'package:onnx_ocr_plugin/onnx_ocr_plugin_method_channel.dart';
+import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
+import 'package:onnx_mobile_ocr/onnx_ocr_plugin_platform_interface.dart';
+import 'package:onnx_mobile_ocr/onnx_ocr_plugin_method_channel.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-class MockOnnxOcrPluginPlatform
+class MockOnnxMobileOcrPlatform
     with MockPlatformInterfaceMixin
-    implements OnnxOcrPluginPlatform {
+    implements OnnxMobileOcrPlatform {
 
   @override
   Future<String?> getPlatformVersion() => Future.value('42');
+
+  @override
+  Future<Map<dynamic, dynamic>> detectText(
+    Uint8List imageData, {
+    bool includeAllConfidenceScores = false,
+  }) async {
+    return {};
+  }
 }
 
 void main() {
-  final OnnxOcrPluginPlatform initialPlatform = OnnxOcrPluginPlatform.instance;
+  final OnnxMobileOcrPlatform initialPlatform = OnnxMobileOcrPlatform.instance;
 
-  test('$MethodChannelOnnxOcrPlugin is the default instance', () {
-    expect(initialPlatform, isInstanceOf<MethodChannelOnnxOcrPlugin>());
+  test('$MethodChannelOnnxMobileOcr is the default instance', () {
+    expect(initialPlatform, isInstanceOf<MethodChannelOnnxMobileOcr>());
   });
 
   test('getPlatformVersion', () async {
-    OnnxOcrPlugin onnxOcrPlugin = OnnxOcrPlugin();
-    MockOnnxOcrPluginPlatform fakePlatform = MockOnnxOcrPluginPlatform();
-    OnnxOcrPluginPlatform.instance = fakePlatform;
+    OnnxMobileOcr onnxMobileOcr = OnnxMobileOcr();
+    MockOnnxMobileOcrPlatform fakePlatform = MockOnnxMobileOcrPlatform();
+    OnnxMobileOcrPlatform.instance = fakePlatform;
 
-    expect(await onnxOcrPlugin.getPlatformVersion(), '42');
+    expect(await onnxMobileOcr.getPlatformVersion(), '42');
   });
 }

@@ -10,13 +10,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-import 'package:onnx_ocr_plugin/onnx_ocr_plugin.dart';
+import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('getPlatformVersion test', (WidgetTester tester) async {
-    final OnnxOcrPlugin plugin = OnnxOcrPlugin();
+    final OnnxMobileOcr plugin = OnnxMobileOcr();
     final String? version = await plugin.getPlatformVersion();
     // The version string depends on the host platform running the test, so
     // just assert that some non-empty string is returned.

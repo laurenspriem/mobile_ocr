@@ -1,12 +1,12 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:onnx_ocr_plugin/onnx_ocr_plugin_method_channel.dart';
+import 'package:onnx_mobile_ocr/onnx_ocr_plugin_method_channel.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  MethodChannelOnnxOcrPlugin platform = MethodChannelOnnxOcrPlugin();
-  const MethodChannel channel = MethodChannel('onnx_ocr_plugin');
+  MethodChannelOnnxMobileOcr platform = MethodChannelOnnxMobileOcr();
+  const MethodChannel channel = MethodChannel('onnx_mobile_ocr');
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
