@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.onnx_ocr_plugin_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
