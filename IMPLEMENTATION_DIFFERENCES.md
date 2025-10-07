@@ -1,6 +1,6 @@
 # OnnxOCR Plugin vs Python Reference
 
-## High-Impact Deviations _(status 2025-10-06, Codex)_
+## High-Impact Deviations
 - ✅ **Color channel order mismatch** – detection, recognition, and classification preprocessors now feed BGR tensors to ONNX (`android/src/main/kotlin/com/example/onnx_ocr_plugin/TextDetector.kt:73`, `TextRecognizer.kt:112`, `TextClassifier.kt:100`). This aligns us with the PaddleOCR training statistics used in the Python reference.
 - ✅ **Detection geometry** – connected components are traced, converted to convex hulls, and fed through a rotating-calipers minimum-area rectangle implementation before scaling back to the source image (`TextDetector.kt:166-300`). Boxes are ordered with the same vertical grouping heuristic that the Python pipeline uses.
 - ✅ **Unclip and contour handling** – instead of centroid scaling, rectangles are expanded using the PaddleOCR area/perimeter heuristic and then clamped to image bounds (`TextDetector.kt:421-463`). This mirrors pyclipper’s expansion behaviour for quadrilaterals.
