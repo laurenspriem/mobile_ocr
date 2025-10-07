@@ -3,9 +3,9 @@ import 'dart:ui' as ui;
 
 import 'onnx_ocr_plugin_platform_interface.dart';
 
-class OnnxOcrPlugin {
+class OnnxMobileOcr {
   Future<String?> getPlatformVersion() {
-    return OnnxOcrPluginPlatform.instance.getPlatformVersion();
+    return OnnxMobileOcrPlatform.instance.getPlatformVersion();
   }
 
   /// Detect text in an image
@@ -19,7 +19,7 @@ class OnnxOcrPlugin {
     Uint8List imageData, {
     bool includeAllConfidenceScores = false,
   }) async {
-    final result = await OnnxOcrPluginPlatform.instance.detectText(
+    final result = await OnnxMobileOcrPlatform.instance.detectText(
       imageData,
       includeAllConfidenceScores: includeAllConfidenceScores,
     );

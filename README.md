@@ -1,4 +1,4 @@
-# ONNX OCR Plugin
+# ONNX Mobile OCR
 
 A Flutter plugin for performing Optical Character Recognition (OCR) using ONNX models. This plugin replicates the functionality of the PaddleOCR v5 models, running directly on Android devices for fast and accurate text detection and recognition.
 
@@ -17,7 +17,9 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  onnx_ocr_plugin: ^0.0.1
+  onnx_mobile_ocr:
+    git:
+      url: https://github.com/laurenspriem/onnx_mobile_ocr
 ```
 
 ## Usage
@@ -25,10 +27,10 @@ dependencies:
 ### Basic Usage
 
 ```dart
-import 'package:onnx_ocr_plugin/onnx_ocr_plugin.dart';
+import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
 
 // Create plugin instance
-final ocrPlugin = OnnxOcrPlugin();
+final ocrPlugin = OnnxMobileOcr();
 
 // Load image as Uint8List (PNG/JPEG format)
 final Uint8List imageData = await loadImage();

@@ -1,4 +1,4 @@
-package com.example.onnx_ocr_plugin
+package io.ente.onnx_mobile_ocr
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -56,19 +56,19 @@ class OcrProcessor(
 
     private fun loadModels() {
         // Load detection model
-        context.assets.open("flutter_assets/packages/onnx_ocr_plugin/assets/models/det/det.onnx").use { stream ->
+        context.assets.open("flutter_assets/packages/onnx_mobile_ocr/assets/models/det/det.onnx").use { stream ->
             val modelBytes = stream.readBytes()
             detectionSession = ortEnv.createSession(modelBytes, sessionOptions)
         }
 
         // Load recognition model
-        context.assets.open("flutter_assets/packages/onnx_ocr_plugin/assets/models/rec/rec.onnx").use { stream ->
+        context.assets.open("flutter_assets/packages/onnx_mobile_ocr/assets/models/rec/rec.onnx").use { stream ->
             val modelBytes = stream.readBytes()
             recognitionSession = ortEnv.createSession(modelBytes, sessionOptions)
         }
 
         if (useAngleClassification) {
-            context.assets.open("flutter_assets/packages/onnx_ocr_plugin/assets/models/cls/cls.onnx").use { stream ->
+            context.assets.open("flutter_assets/packages/onnx_mobile_ocr/assets/models/cls/cls.onnx").use { stream ->
                 val modelBytes = stream.readBytes()
                 classificationSession = ortEnv.createSession(modelBytes, sessionOptions)
             }
@@ -76,7 +76,7 @@ class OcrProcessor(
     }
 
     private fun loadCharacterDict() {
-        context.assets.open("flutter_assets/packages/onnx_ocr_plugin/assets/models/ppocrv5_dict.txt").use { stream ->
+        context.assets.open("flutter_assets/packages/onnx_mobile_ocr/assets/models/ppocrv5_dict.txt").use { stream ->
             val characters = stream.bufferedReader().readLines().toMutableList()
             // Add space character (matching use_space_char=True, the Python default)
             characters.add(" ")

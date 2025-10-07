@@ -1,11 +1,11 @@
-name: onnx_ocr_plugin
-description: "A new Flutter plugin project."
-version: 0.0.1
-homepage:
+name: onnx_mobile_ocr
+description: "Flutter plugin for on-device OCR."
+version: 1.0.0
+homepage: https://github.com/laurenspriem/onnx_mobile_ocr
 
 environment:
   sdk: ^3.8.1
-  flutter: '>=3.3.0'
+  flutter: ">=3.3.0"
 
 dependencies:
   flutter:
@@ -36,8 +36,8 @@ flutter:
   plugin:
     platforms:
       android:
-        package: com.example.onnx_ocr_plugin
-        pluginClass: OnnxOcrPlugin
+        package: io.ente.onnx_mobile_ocr
+        pluginClass: OnnxMobileOcrPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
   assets:

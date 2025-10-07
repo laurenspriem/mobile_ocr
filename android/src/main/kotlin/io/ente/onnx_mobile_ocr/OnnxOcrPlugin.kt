@@ -1,4 +1,4 @@
-package com.example.onnx_ocr_plugin
+package io.ente.onnx_mobile_ocr
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -11,15 +11,15 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.*
 
-/** OnnxOcrPlugin */
-class OnnxOcrPlugin: FlutterPlugin, MethodCallHandler {
+/** OnnxMobileOcrPlugin */
+class OnnxMobileOcrPlugin: FlutterPlugin, MethodCallHandler {
   private lateinit var channel : MethodChannel
   private lateinit var context: Context
   private var ocrProcessor: OcrProcessor? = null
   private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
   override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "onnx_ocr_plugin")
+    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "onnx_mobile_ocr")
     channel.setMethodCallHandler(this)
     context = flutterPluginBinding.applicationContext
 

@@ -1,4 +1,4 @@
-package com.example.onnx_ocr_plugin
+package io.ente.onnx_mobile_ocr
 
 import android.graphics.*
 import kotlin.math.*
