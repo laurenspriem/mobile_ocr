@@ -13,7 +13,9 @@ class MethodChannelOnnxMobileOcr extends OnnxMobileOcrPlatform {
 
   @override
   Future<String?> getPlatformVersion() async {
-    final version = await methodChannel.invokeMethod<String>('getPlatformVersion');
+    final version = await methodChannel.invokeMethod<String>(
+      'getPlatformVersion',
+    );
     return version;
   }
 
@@ -22,12 +24,18 @@ class MethodChannelOnnxMobileOcr extends OnnxMobileOcrPlatform {
     Uint8List imageData, {
     bool includeAllConfidenceScores = false,
   }) async {
+    final result = await methodChannel
+        .invokeMethod<Map<dynamic, dynamic>>('detectText', {
+          'imageData': imageData,
+          'includeAllConfidenceScores': includeAllConfidenceScores,
+        });
+    return result ?? {};
+  }
+
+  @override
+  Future<Map<dynamic, dynamic>> prepareModels() async {
     final result = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
-      'detectText',
-      {
-        'imageData': imageData,
-        'includeAllConfidenceScores': includeAllConfidenceScores,
-      },
+      'prepareModels',
     );
     return result ?? {};
   }

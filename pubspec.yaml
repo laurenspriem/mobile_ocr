@@ -40,11 +40,6 @@ flutter:
         pluginClass: OnnxMobileOcrPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
-  assets:
-    - assets/models/det/
-    - assets/models/rec/
-    - assets/models/cls/
-    - assets/models/ppocrv5_dict.txt
   #
   # For details regarding assets in packages, see
   # https://flutter.dev/to/asset-from-package

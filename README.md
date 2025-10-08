@@ -32,6 +32,9 @@ import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
 // Create plugin instance
 final ocrPlugin = OnnxMobileOcr();
 
+// Ensure ONNX models are cached locally (downloads on first run)
+await ocrPlugin.prepareModels();
+
 // Load image as Uint8List (PNG/JPEG format)
 final Uint8List imageData = await loadImage();
 
@@ -56,6 +59,7 @@ final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
 if (image != null) {
   final bytes = await image.readAsBytes();
+  await ocrPlugin.prepareModels(); // Optional: ensure models are ready before detection
   final result = await ocrPlugin.detectText(bytes);
   // Process results...
 }
@@ -78,6 +82,14 @@ cd example
 flutter run
 ```
 
+## Model Assets
+
+The ONNX models (~20 MB total) are **not** bundled with the plugin. They are hosted at
+`https://models.ente.io/PP-OCRv5/` and downloaded on demand the first time you call
+`prepareModels()`. Files are cached under `context.filesDir/onnx_ocr/PP-OCRv5/` with SHA-256
+verification so subsequent runs work offline. You can call `prepareModels()` during app launch to
+show a download progress indicator before triggering OCR.
+
 ## Platform Support
 
 Currently supports:
@@ -94,4 +106,3 @@ This work would not be possible without:
 ## License
 
 This plugin is released under the MIT License. The ONNX models are derived from PaddleOCR and follow their licensing terms.
-

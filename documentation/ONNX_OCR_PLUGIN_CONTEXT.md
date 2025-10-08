@@ -65,16 +65,16 @@ onnx_ocr_plugin/
 │       ├── TextDetector.kt     # Text detection (DB algorithm)
 │       ├── TextRecognizer.kt   # Text recognition (CTC decoder)
 │       ├── TextClassifier.kt   # Angle classification
-│       └── ImageUtils.kt       # Image processing utilities
+│       ├── ImageUtils.kt       # Image processing utilities
+│       └── ModelManager.kt     # Runtime model download/cache manager
 ├── lib/                        # Flutter/Dart interface
 │   ├── onnx_ocr_plugin.dart   # Main plugin API
 │   └── onnx_ocr_plugin_platform_interface.dart
-├── assets/models/              # ONNX models from PaddleOCR v5
-│   ├── det/det.onnx           # Detection model (~4.75 MB)
-│   ├── rec/rec.onnx           # Recognition model (~16.5 MB)
-│   ├── cls/cls.onnx           # Classification model (~583 KB)
-│   └── ppocrv5_dict.txt       # Character dictionary
 └── example/                    # Sample app demonstrating usage
+
+> The ONNX models and dictionary are no longer bundled with the plugin.
+> `ModelManager` downloads them on demand from `https://models.ente.io/PP-OCRv5/`
+> and caches them under the host app’s `filesDir/onnx_ocr/PP-OCRv5/`.
 ```
 
 ### OCR Pipeline (Exact Copy of OnnxOCR)
@@ -117,6 +117,7 @@ onnx_ocr_plugin/
 - **ONNX Runtime**: Version 1.16.3 for Android (only allowed external dependency)
 - **Async Processing**: Kotlin coroutines for non-blocking operations
 - **Memory Optimization**: All heavy processing stays in native layer
+- **Model Delivery**: `ModelManager` downloads PaddleOCR assets from `https://models.ente.io/PP-OCRv5/`, verifies SHA-256 hashes, and caches them under `filesDir/onnx_ocr/PP-OCRv5/`
 - **No OpenCV**: All image processing uses native Android APIs (Bitmap, Canvas, Matrix, Paint) or custom Kotlin implementations
 - **Zero .so file bloat**: No native libraries beyond ONNX Runtime
 - **Batch Processing**: Recognition processes up to 6 regions simultaneously
@@ -182,6 +183,10 @@ dependencies {
 ### Quick Testing via Sample App
 
 The example app is configured for easy testing and verification of OCR functionality:
+
+- On first launch the plugin downloads the ONNX assets from the CDN; ensure the device has network
+  access. Progress is surfaced through the UI via the new `prepareModels()` call.
+- Cached models live in the app sandbox; subsequent runs work offline unless hashes change.
 
 #### Running Tests
 

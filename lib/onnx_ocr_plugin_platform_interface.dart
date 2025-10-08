@@ -35,4 +35,8 @@ abstract class OnnxMobileOcrPlatform extends PlatformInterface {
   }) {
     throw UnimplementedError('detectText() has not been implemented.');
   }
+
+  Future<Map<dynamic, dynamic>> prepareModels() {
+    throw UnimplementedError('prepareModels() has not been implemented.');
+  }
 }

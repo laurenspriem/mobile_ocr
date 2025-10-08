@@ -54,6 +54,10 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   TextResult? _selectedText;
   String _platformVersion = 'Unknown';
   Size? _imageOriginalSize;
+  bool _modelsReady = false;
+  bool _isPreparingModels = false;
+  Future<bool>? _prepareModelsFuture;
+  String? _modelVersion;
 
   // Test images list (starting with meme images)
   final List<String> _testImages = [
@@ -80,6 +84,9 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     initPlatformState();
     _loadGroundTruth();
     _loadTestImage();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureModelsReady();
+    });
 
     // Start auto-cycle timer if feature is enabled
     if (AUTO_CYCLE_TEST_IMAGES) {
@@ -137,6 +144,56 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       _groundTruth = json.decode(jsonString);
     } catch (e) {
       print('Failed to load ground truth: $e');
+    }
+  }
+
+  Future<bool> _ensureModelsReady() {
+    final existing = _prepareModelsFuture;
+    if (existing != null) {
+      return existing;
+    }
+
+    final future = _prepareModels();
+    _prepareModelsFuture = future;
+    future.whenComplete(() {
+      _prepareModelsFuture = null;
+    });
+    return future;
+  }
+
+  Future<bool> _prepareModels() async {
+    if (mounted) {
+      setState(() {
+        _isPreparingModels = true;
+      });
+    }
+
+    try {
+      final status = await _ocrPlugin.prepareModels();
+      if (!mounted) {
+        return status.isReady;
+      }
+
+      setState(() {
+        _modelsReady = status.isReady;
+        _modelVersion = status.version;
+      });
+
+      if (!status.isReady) {
+        _showError('Model preparation did not complete successfully.');
+      }
+      return status.isReady;
+    } catch (e) {
+      if (mounted) {
+        _showError('Failed to prepare OCR models: $e');
+      }
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPreparingModels = false;
+        });
+      }
     }
   }
 
@@ -264,6 +321,14 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       _isProcessing = true;
       _selectedText = null;
     });
+
+    final modelsReady = await _ensureModelsReady();
+    if (!modelsReady) {
+      setState(() {
+        _isProcessing = false;
+      });
+      return;
+    }
 
     try {
       final result = await _ocrPlugin.detectText(
@@ -485,6 +550,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isBusy = _isProcessing || _isPreparingModels;
     return Scaffold(
       appBar: AppBar(
         title: const Text('ONNX OCR Plugin Demo'),
@@ -500,6 +566,33 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
+          if (_isPreparingModels) ...[
+            const LinearProgressIndicator(),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              child: Text(
+                'Preparing OCR models...',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ] else if (!_modelsReady) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              child: Text(
+                'OCR models will download the first time you run detection.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ] else if (_modelVersion != null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              child: Text(
+                'Models ready (version $_modelVersion)',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
           Expanded(
             child: _imageBytes == null
                 ? const Center(
@@ -589,7 +682,10 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                 const SizedBox(height: 8),
                 // Low confidence toggle
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange[50],
                     borderRadius: BorderRadius.circular(8),
@@ -597,7 +693,11 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
+                      const Icon(
+                        Icons.warning_amber,
+                        size: 16,
+                        color: Colors.orange,
+                      ),
                       const SizedBox(width: 8),
                       const Text('Include low confidence (<80%)'),
                       Switch(
@@ -631,9 +731,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           IconButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : _previousTestImage,
+                            onPressed: isBusy ? null : _previousTestImage,
                             icon: const Icon(Icons.arrow_back),
                             tooltip: 'Previous test image',
                           ),
@@ -645,9 +743,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                             ),
                           ),
                           IconButton(
-                            onPressed: _isProcessing
-                                ? null
-                                : _manualNextTestImage,
+                            onPressed: isBusy ? null : _manualNextTestImage,
                             icon: const Icon(Icons.arrow_forward),
                             tooltip: 'Next test image',
                           ),
@@ -673,21 +769,21 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _isProcessing
+                      onPressed: isBusy
                           ? null
                           : () => _pickImage(ImageSource.camera),
                       icon: const Icon(Icons.camera_alt),
                       label: const Text('Camera'),
                     ),
                     ElevatedButton.icon(
-                      onPressed: _isProcessing
+                      onPressed: isBusy
                           ? null
                           : () => _pickImage(ImageSource.gallery),
                       icon: const Icon(Icons.photo_library),
                       label: const Text('Gallery'),
                     ),
                     ElevatedButton.icon(
-                      onPressed: _imageBytes == null || _isProcessing
+                      onPressed: _imageBytes == null || isBusy
                           ? null
                           : _performOcr,
                       icon: _isProcessing
@@ -697,7 +793,13 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.text_fields),
-                      label: Text(_isProcessing ? 'Processing...' : 'Run OCR'),
+                      label: Text(
+                        _isProcessing
+                            ? 'Processing...'
+                            : _isPreparingModels
+                            ? 'Preparing...'
+                            : 'Run OCR',
+                      ),
                     ),
                   ],
                 ),

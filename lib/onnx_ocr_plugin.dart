@@ -8,6 +8,15 @@ class OnnxMobileOcr {
     return OnnxMobileOcrPlatform.instance.getPlatformVersion();
   }
 
+  /// Ensure that the ONNX models required by the native pipeline are downloaded.
+  ///
+  /// Downloads any missing files, verifies checksums, and caches them on disk.
+  /// Returns a [ModelPreparationStatus] describing the cache status.
+  Future<ModelPreparationStatus> prepareModels() async {
+    final result = await OnnxMobileOcrPlatform.instance.prepareModels();
+    return ModelPreparationStatus.fromMap(result);
+  }
+
   /// Detect text in an image
   ///
   /// Takes a [Uint8List] representing the image data (PNG/JPEG format)
@@ -36,17 +45,30 @@ class OnnxMobileOcr {
   }
 }
 
+/// Describes the current preparation status of the native OCR model cache.
+class ModelPreparationStatus {
+  final bool isReady;
+  final String? version;
+  final String? modelPath;
+
+  ModelPreparationStatus({required this.isReady, this.version, this.modelPath});
+
+  factory ModelPreparationStatus.fromMap(Map<dynamic, dynamic> map) {
+    return ModelPreparationStatus(
+      isReady: map['isReady'] == true,
+      version: map['version'] as String?,
+      modelPath: map['modelPath'] as String?,
+    );
+  }
+}
+
 /// OCR Result containing detected boxes, recognized text and confidence scores
 class OcrResult {
   final List<TextBox> boxes;
   final List<String> texts;
   final List<double> scores;
 
-  OcrResult({
-    required this.boxes,
-    required this.texts,
-    required this.scores,
-  });
+  OcrResult({required this.boxes, required this.texts, required this.scores});
 
   factory OcrResult.fromMap(Map<dynamic, dynamic> map) {
     final boxesList = (map['boxes'] as List? ?? []);
@@ -67,11 +89,7 @@ class OcrResult {
     final texts = textsList.cast<String>();
     final scores = scoresList.map((s) => (s as num).toDouble()).toList();
 
-    return OcrResult(
-      boxes: boxes,
-      texts: texts,
-      scores: scores,
-    );
+    return OcrResult(boxes: boxes, texts: texts, scores: scores);
   }
 
   bool get isEmpty => boxes.isEmpty;
@@ -126,7 +144,8 @@ class TextBox {
 
       if ((p1.dy <= point.dy && point.dy < p2.dy) ||
           (p2.dy <= point.dy && point.dy < p1.dy)) {
-        final x = p1.dx + (point.dy - p1.dy) * (p2.dx - p1.dx) / (p2.dy - p1.dy);
+        final x =
+            p1.dx + (point.dy - p1.dy) * (p2.dx - p1.dx) / (p2.dy - p1.dy);
         if (x > point.dx) {
           intersections++;
         }
@@ -143,9 +162,5 @@ class TextResult {
   final String text;
   final double score;
 
-  TextResult({
-    required this.box,
-    required this.text,
-    required this.score,
-  });
+  TextResult({required this.box, required this.text, required this.score});
 }
