@@ -33,6 +33,7 @@ class TextOverlayWidget extends StatefulWidget {
 class _TextOverlayWidgetState extends State<TextOverlayWidget>
     with TickerProviderStateMixin {
   static const double _epsilon = 1e-6;
+  final GlobalKey _toolbarKey = GlobalKey();
   Size? _imageSize;
   Size? _displaySize;
   Offset? _displayOffset;
@@ -47,6 +48,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
   // Toolbar drag state
   Offset _toolbarOffset = Offset.zero;
   bool _isToolbarDragging = false;
+  Size? _toolbarSize;
 
   // Animation controllers
   late AnimationController _selectionAnimController;
@@ -119,7 +121,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
       fit: StackFit.expand,
       children: [
         _buildInteractiveImage(),
-        if (_selectedIndices.isNotEmpty) _buildSelectionToolbar(),
+        if (widget.textBlocks.isNotEmpty) _buildSelectionToolbar(),
       ],
     );
   }
@@ -467,15 +469,55 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
         c.dy <= max(a.dy, b.dy) + _epsilon &&
         c.dy + _epsilon >= min(a.dy, b.dy);
   }
+  
+  void _scheduleToolbarSizeUpdate(Size size) {
+    final current = _toolbarSize;
+    if (current != null &&
+        (current.width - size.width).abs() < 0.5 &&
+        (current.height - size.height).abs() < 0.5) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _toolbarSize = size;
+      });
+    });
+  }
 
   Widget _buildSelectionToolbar() {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
+    final bool hasSelection = _selectedIndices.isNotEmpty;
+    final bool hasAllSelected =
+        hasSelection && _selectedIndices.length == widget.textBlocks.length;
+
+    final renderBox =
+        _toolbarKey.currentContext?.findRenderObject() as RenderBox?;
+    final Size? measuredSize = renderBox?.size;
+    if (measuredSize != null) {
+      _scheduleToolbarSizeUpdate(measuredSize);
+    }
+    final toolbarSize = measuredSize ?? _toolbarSize ?? const Size(220, 52);
+    final double toolbarWidth = toolbarSize.width;
+    final double toolbarHeight = toolbarSize.height;
+
+    final double baseLeft = (screenWidth - toolbarWidth) / 2;
+    final double baseBottom = MediaQuery.of(context).padding.bottom + 20;
+
+    final double minLeft = 10.0;
+    final double maxLeft = screenWidth - toolbarWidth - 10.0;
+    final double minBottom = 20.0;
+    final double maxBottom = screenHeight - toolbarHeight - 20.0;
+
+    final double left = (baseLeft + _toolbarOffset.dx)
+        .clamp(minLeft, max(minLeft, maxLeft));
+    final double bottom =
+        (baseBottom - _toolbarOffset.dy).clamp(minBottom, max(minBottom, maxBottom));
 
     return Positioned(
-      bottom: (MediaQuery.of(context).padding.bottom + 20 - _toolbarOffset.dy)
-          .clamp(20.0, screenHeight - 100),
-      left: (_toolbarOffset.dx + screenWidth / 2 - 100).clamp(10.0, screenWidth - 210),
+      bottom: bottom,
+      left: left,
       child: GestureDetector(
         onPanStart: (details) {
           setState(() {
@@ -500,6 +542,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
             return Transform.scale(
               scale: value,
               child: Container(
+                key: _toolbarKey,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: _isToolbarDragging
@@ -522,7 +565,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
                       color: CupertinoColors.systemBlue,
                       borderRadius: BorderRadius.circular(14),
                       minimumSize: const Size(28, 28),
-                      onPressed: _copySelectedText,
+                      onPressed: hasSelection ? _copySelectedText : null,
                       child: const Row(
                         children: [
                           Icon(CupertinoIcons.doc_on_clipboard,
@@ -543,19 +586,43 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
                       color: CupertinoColors.systemPurple,
                       borderRadius: BorderRadius.circular(14),
                       minimumSize: const Size(28, 28),
-                      onPressed: _copyAllText,
+                      onPressed: widget.textBlocks.isEmpty || hasAllSelected
+                          ? null
+                          : _selectAllBlocks,
                       child: const Row(
                         children: [
-                          Icon(CupertinoIcons.doc_on_doc_fill,
+                          Icon(CupertinoIcons.checkmark_seal_fill,
                               size: 16, color: Colors.white),
                           SizedBox(width: 4),
-                          Text('Copy All',
+                          Text('Select All',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.white,
                                 fontWeight: FontWeight.w600,
                               )),
                         ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(24, 24),
+                      onPressed: hasSelection ? _clearSelection : null,
+                      child: Opacity(
+                        opacity: hasSelection ? 1 : 0.3,
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            CupertinoIcons.xmark,
+                            color: Colors.white70,
+                            size: 14,
+                          ),
+                        ),
                       ),
                     ),
                     if (widget.debugMode) ...[
@@ -579,25 +646,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
                         ),
                       ),
                     ],
-                    const SizedBox(width: 8),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(24, 24),
-                      onPressed: _clearSelection,
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          CupertinoIcons.xmark,
-                          color: Colors.white70,
-                          size: 14,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -665,19 +713,18 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget>
     });
   }
 
-  void _copyAllText() {
-    final text = _getTextFromBlocks(widget.textBlocks);
-    Clipboard.setData(ClipboardData(text: text));
-    widget.onTextCopied?.call(text);
+  void _selectAllBlocks() {
+    if (widget.textBlocks.isEmpty) return;
 
-    HapticFeedback.mediumImpact();
-
-    // Auto-hide after a short delay
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        _clearSelection();
-      }
+    setState(() {
+      _selectedIndices
+        ..clear()
+        ..addAll(List<int>.generate(widget.textBlocks.length, (index) => index));
     });
+
+    _selectionAnimController.forward(from: 0);
+    HapticFeedback.mediumImpact();
+    _notifySelection();
   }
 
   String _getTextFromBlocks(List<TextBlock> blocks) {
