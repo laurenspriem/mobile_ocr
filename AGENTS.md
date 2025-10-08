@@ -1,5 +1,10 @@
 # Repository Guidelines
 
+## Project Overview
+- Flutter plugin delivering on-device OCR via PaddleOCR v5 ONNX models.
+- Android Kotlin layer mirrors the original Python `OnnxOCR` pipeline without OpenCV, keeping dependencies lightweight.
+- Example app in `example/` offers regression checks with meme, receipt, and UI screenshots to validate detection accuracy.
+
 ## Project Structure & Module Organization
 - `lib/` exposes the Dart API: method channel wiring in `onnx_ocr_plugin_method_channel.dart`, platform interface abstractions, and convenience entry points.
 - `android/src/main/kotlin/com/ente/onnx_ocr/` hosts native pipeline code (`OcrProcessor`, `TextDetector`, `TextRecognizer`, `TextClassifier`, utilities).
