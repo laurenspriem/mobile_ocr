@@ -1,4 +1,4 @@
-group = "io.ente.onnx_mobile_ocr"
+group = "io.ente.mobile_ocr"
 version = "1.0.0"
 
 buildscript {
@@ -25,7 +25,7 @@ apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
 
 android {
-    namespace = "io.ente.onnx_mobile_ocr"
+    namespace = "io.ente.mobile_ocr"
 
     compileSdk = 35
     ndkVersion = "27.0.12077973"

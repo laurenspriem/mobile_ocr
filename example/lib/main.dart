@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:onnx_mobile_ocr/onnx_mobile_ocr.dart';
+import 'package:mobile_ocr/mobile_ocr.dart';
 
 void main() {
   runApp(const MyApp());

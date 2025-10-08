@@ -5,7 +5,7 @@ import CoreImage
 
 public class MobileOcrPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
-        let channel = FlutterMethodChannel(name: "onnx_mobile_ocr", binaryMessenger: registrar.messenger())
+        let channel = FlutterMethodChannel(name: "mobile_ocr", binaryMessenger: registrar.messenger())
         let instance = MobileOcrPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
     }

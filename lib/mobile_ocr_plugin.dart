@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:onnx_mobile_ocr/models/text_block.dart';
+import 'package:mobile_ocr/models/text_block.dart';
 
 import 'mobile_ocr_plugin_platform_interface.dart';
 

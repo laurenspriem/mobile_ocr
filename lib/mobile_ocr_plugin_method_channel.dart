@@ -7,7 +7,7 @@ import 'mobile_ocr_plugin_platform_interface.dart';
 class MethodChannelMobileOcr extends MobileOcrPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
-  final methodChannel = const MethodChannel('onnx_mobile_ocr');
+  final methodChannel = const MethodChannel('mobile_ocr');
 
   @override
   Future<String?> getPlatformVersion() async {

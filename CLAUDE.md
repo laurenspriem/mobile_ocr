@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`onnx_mobile_ocr` is a Flutter plugin for on-device OCR across Android and iOS. The Android implementation directly ports [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) using PaddleOCR v5 models on ONNX Runtime, while the iOS implementation uses Apple’s Vision framework to provide the same API surface without shipping ONNX models.
+`mobile_ocr` is a Flutter plugin for on-device OCR across Android and iOS. The Android implementation directly ports [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) using PaddleOCR v5 models on ONNX Runtime, while the iOS implementation uses Apple’s Vision framework to provide the same API surface without shipping ONNX models.
 
 **Critical Constraint**: NO OpenCV or large SDKs. Only native Android APIs (Bitmap, Canvas, Matrix, Paint) and ONNX Runtime are allowed to prevent native library bloat.
 
@@ -68,7 +68,7 @@ Models are NOT bundled with the plugin:
 
 ### Component Structure
 
-**Native (Android)** - `android/src/main/kotlin/io/ente/onnx_mobile_ocr/` (PaddleOCR v5 on ONNX Runtime):
+**Native (Android)** - `android/src/main/kotlin/io/ente/mobile_ocr/` (PaddleOCR v5 on ONNX Runtime):
 - `MobileOcrPlugin.kt`: Flutter method channel interface
 - `OcrProcessor.kt`: Pipeline orchestrator
 - `ModelManager.kt`: Download/cache manager

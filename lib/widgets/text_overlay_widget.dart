@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:onnx_mobile_ocr/models/text_block.dart';
+import 'package:mobile_ocr/models/text_block.dart';
 
 /// A widget that overlays detected text blocks on an image with selection capabilities
 class TextOverlayWidget extends StatefulWidget {

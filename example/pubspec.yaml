@@ -1,5 +1,5 @@
-name: onnx_mobile_ocr_example
-description: "Demonstrates how to use the onnx_mobile_ocr plugin."
+name: mobile_ocr_example
+description: "Demonstrates how to use the mobile_ocr plugin."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -17,9 +17,9 @@ dependencies:
   flutter:
     sdk: flutter
 
-  onnx_mobile_ocr:
+  mobile_ocr:
     # When depending on this package from a real application you should use:
-    #   onnx_mobile_ocr: ^x.y.z
+    #   mobile_ocr: ^x.y.z
     # See https://dart.dev/tools/pub/dependencies#version-constraints
     # The example app is bundled with the plugin so we use a path dependency on
     # the parent directory to use the current plugin's version.

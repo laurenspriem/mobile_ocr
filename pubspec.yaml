@@ -1,7 +1,7 @@
-name: onnx_mobile_ocr
+name: mobile_ocr
 description: "Flutter plugin for on-device OCR."
 version: 1.0.0
-homepage: https://github.com/laurenspriem/onnx_mobile_ocr
+homepage: https://github.com/laurenspriem/mobile_ocr
 
 environment:
   sdk: ^3.8.1
@@ -36,7 +36,7 @@ flutter:
   plugin:
     platforms:
       android:
-        package: io.ente.onnx_mobile_ocr
+        package: io.ente.mobile_ocr
         pluginClass: MobileOcrPlugin
       ios:
         pluginClass: MobileOcrPlugin

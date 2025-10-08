@@ -1,4 +1,4 @@
-package io.ente.onnx_mobile_ocr
+package io.ente.mobile_ocr
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -26,7 +26,7 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
   private val processorMutex = Mutex()
 
   override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "onnx_mobile_ocr")
+    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "mobile_ocr")
     channel.setMethodCallHandler(this)
     context = flutterPluginBinding.applicationContext
     modelManager = ModelManager(context)

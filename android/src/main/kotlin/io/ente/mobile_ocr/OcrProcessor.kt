@@ -1,4 +1,4 @@
-package io.ente.onnx_mobile_ocr
+package io.ente.mobile_ocr
 
 import android.content.Context
 import android.graphics.Bitmap

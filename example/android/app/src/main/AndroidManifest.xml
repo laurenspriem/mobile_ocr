@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
-        android:label="onnx_mobile_ocr_example"
+        android:label="mobile_ocr_example"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

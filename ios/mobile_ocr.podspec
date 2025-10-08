@@ -1,16 +1,16 @@
 #
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
-# Run `pod lib lint onnx_mobile_ocr.podspec` to validate before publishing.
+# Run `pod lib lint mobile_ocr.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
-  s.name             = 'onnx_mobile_ocr'
+  s.name             = 'mobile_ocr'
   s.version          = '0.0.1'
   s.summary          = 'Flutter plugin for on-device OCR using native iOS Vision framework.'
   s.description      = <<-DESC
 A Flutter plugin for on-device OCR using native iOS Vision framework.
 Provides text detection and recognition capabilities without requiring external model downloads.
                        DESC
-  s.homepage         = 'https://github.com/laurenspriem/onnx_mobile_ocr'
+  s.homepage         = 'https://github.com/laurenspriem/mobile_ocr'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Ente' => 'support@ente.io' }
   s.source           = { :path => '.' }

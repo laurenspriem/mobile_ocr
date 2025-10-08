@@ -1,4 +1,4 @@
-package io.ente.onnx_mobile_ocr_example
+package io.ente.mobile_ocr_example
 
 import io.flutter.embedding.android.FlutterActivity
 

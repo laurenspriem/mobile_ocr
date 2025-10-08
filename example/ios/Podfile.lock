@@ -4,7 +4,7 @@ PODS:
     - Flutter
   - integration_test (0.0.1):
     - Flutter
-  - onnx_mobile_ocr (0.0.1):
+  - mobile_ocr (0.0.1):
     - Flutter
   - path_provider_foundation (0.0.1):
     - Flutter
@@ -14,7 +14,7 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - integration_test (from `.symlinks/plugins/integration_test/ios`)
-  - onnx_mobile_ocr (from `.symlinks/plugins/onnx_mobile_ocr/ios`)
+  - mobile_ocr (from `.symlinks/plugins/mobile_ocr/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
 
 EXTERNAL SOURCES:
@@ -24,8 +24,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
   integration_test:
     :path: ".symlinks/plugins/integration_test/ios"
-  onnx_mobile_ocr:
-    :path: ".symlinks/plugins/onnx_mobile_ocr/ios"
+  mobile_ocr:
+    :path: ".symlinks/plugins/mobile_ocr/ios"
   path_provider_foundation:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
 
@@ -33,7 +33,7 @@ SPEC CHECKSUMS:
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
   image_picker_ios: 7fe1ff8e34c1790d6fff70a32484959f563a928a
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  onnx_mobile_ocr: 0094b523c1757142099a997024f613070116c747
+  mobile_ocr: 0094b523c1757142099a997024f613070116c747
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
 
 PODFILE CHECKSUM: 251cb053df7158f337c0712f2ab29f4e0fa474ce

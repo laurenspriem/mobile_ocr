@@ -27,9 +27,9 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  onnx_mobile_ocr:
+  mobile_ocr:
     git:
-      url: https://github.com/laurenspriem/onnx_mobile_ocr
+      url: https://github.com/laurenspriem/mobile_ocr
 ```
 
 ## Usage
@@ -37,7 +37,7 @@ dependencies:
 ### Basic Usage
 
 ```dart
-import 'package:onnx_mobile_ocr/mobile_ocr_plugin.dart';
+import 'package:mobile_ocr/mobile_ocr_plugin.dart';
 
 // Create plugin instance
 final ocrPlugin = MobileOcr();

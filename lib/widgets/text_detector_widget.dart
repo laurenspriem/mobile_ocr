@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:onnx_mobile_ocr/mobile_ocr_plugin.dart';
-import 'package:onnx_mobile_ocr/models/text_block.dart';
-import 'package:onnx_mobile_ocr/widgets/text_overlay_widget.dart';
+import 'package:mobile_ocr/mobile_ocr_plugin.dart';
+import 'package:mobile_ocr/models/text_block.dart';
+import 'package:mobile_ocr/widgets/text_overlay_widget.dart';
 
 /// A complete text detection widget that displays an image and allows
 /// users to select and copy detected text.

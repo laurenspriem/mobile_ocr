@@ -10,7 +10,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-import 'package:onnx_mobile_ocr/mobile_ocr_plugin.dart';
+import 'package:mobile_ocr/mobile_ocr_plugin.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();

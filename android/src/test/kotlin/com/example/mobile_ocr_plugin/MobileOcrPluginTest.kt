@@ -1,6 +1,6 @@
-package com.example.onnx_ocr_plugin
+package com.example.mobile_ocr_plugin
 
-import io.ente.onnx_mobile_ocr.MobileOcrPlugin
+import io.ente.mobile_ocr.MobileOcrPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlin.test.Test
