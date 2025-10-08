@@ -57,77 +57,91 @@ class ModelPreparationStatus {
   }
 }
 
-/// Represents a detected block of text with its bounding rectangle.
+/// Represents a detected block of text with its polygon outline.
 class TextBlock {
   final String text;
   final double confidence;
-  final double x;
-  final double y;
-  final double width;
-  final double height;
   final List<Offset> points;
 
   const TextBlock({
     required this.text,
     required this.confidence,
-    required this.x,
-    required this.y,
-    required this.width,
-    required this.height,
     required this.points,
   });
 
-  Rect get boundingBox => Rect.fromLTWH(x, y, width, height);
-  Offset get center => Offset(x + width / 2, y + height / 2);
+  Rect get boundingBox {
+    if (points.isEmpty) {
+      return Rect.zero;
+    }
+
+    double minX = points.first.dx;
+    double maxX = points.first.dx;
+    double minY = points.first.dy;
+    double maxY = points.first.dy;
+
+    for (final point in points) {
+      if (point.dx < minX) minX = point.dx;
+      if (point.dx > maxX) maxX = point.dx;
+      if (point.dy < minY) minY = point.dy;
+      if (point.dy > maxY) maxY = point.dy;
+    }
+
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
+  }
+
+  Offset get center => boundingBox.center;
 
   factory TextBlock.fromMap(Map<dynamic, dynamic> map) {
     final confidence = (map['confidence'] as num).toDouble();
-    final x = (map['x'] as num).toDouble();
-    final y = (map['y'] as num).toDouble();
-    final width = (map['width'] as num).toDouble();
-    final height = (map['height'] as num).toDouble();
     final pointsList = map['points'] as List?;
-    final points = (pointsList != null && pointsList.isNotEmpty)
-        ? pointsList
-            .map(
-              (point) => Offset(
-                (point['x'] as num).toDouble(),
-                (point['y'] as num).toDouble(),
-              ),
-            )
-            .toList(growable: false)
-        : <Offset>[
-            Offset(x, y),
-            Offset(x + width, y),
-            Offset(x + width, y + height),
-            Offset(x, y + height),
-          ];
+    List<Offset> points;
+
+    if (pointsList != null && pointsList.isNotEmpty) {
+      points = pointsList
+          .map(
+            (point) => Offset(
+              (point['x'] as num).toDouble(),
+              (point['y'] as num).toDouble(),
+            ),
+          )
+          .toList(growable: false);
+    } else {
+      final x = map['x'] as num?;
+      final y = map['y'] as num?;
+      final width = map['width'] as num?;
+      final height = map['height'] as num?;
+
+      if (x == null || y == null || width == null || height == null) {
+        throw ArgumentError(
+          'TextBlock map is missing polygon points and fallback rectangle.',
+        );
+      }
+
+      final left = x.toDouble();
+      final top = y.toDouble();
+      final blockWidth = width.toDouble();
+      final blockHeight = height.toDouble();
+
+      points = <Offset>[
+        Offset(left, top),
+        Offset(left + blockWidth, top),
+        Offset(left + blockWidth, top + blockHeight),
+        Offset(left, top + blockHeight),
+      ];
+    }
 
     return TextBlock(
       text: map['text'] as String,
       confidence: confidence,
-      x: x,
-      y: y,
-      width: width,
-      height: height,
       points: points,
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'text': text,
-        'confidence': confidence,
-        'x': x,
-        'y': y,
-        'width': width,
-        'height': height,
-        'points': points
-            .map(
-              (point) => {
-                'x': point.dx,
-                'y': point.dy,
-              },
-            )
-            .toList(growable: false),
-      };
+    'text': text,
+    'confidence': confidence,
+    'points': points
+        .map((point) => {'x': point.dx, 'y': point.dy})
+        .toList(growable: false),
+  };
 }

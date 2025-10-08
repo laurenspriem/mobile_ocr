@@ -155,16 +155,12 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       return existing;
     }
 
-    final dir =
-        await Directory.systemTemp.createTemp('onnx_ocr_assets_cache');
+    final dir = await Directory.systemTemp.createTemp('onnx_ocr_assets_cache');
     _assetCacheDirectory = dir;
     return dir;
   }
 
-  Future<File> _writeBytesToCacheFile(
-    Uint8List bytes,
-    String filename,
-  ) async {
+  Future<File> _writeBytesToCacheFile(Uint8List bytes, String filename) async {
     final cacheDir = await _ensureAssetCacheDirectory();
     final file = File('${cacheDir.path}/$filename');
     await file.writeAsBytes(bytes, flush: true);
@@ -365,7 +361,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     }
 
     try {
-      final result = await _ocrPlugin.detectText(
+      final List<TextBlock> result = await _ocrPlugin.detectText(
         imagePath: imageFile.path,
         includeAllConfidenceScores: _includeAllConfidenceScores,
       );
@@ -861,9 +857,12 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       final xj = polygon[j].dx;
       final yj = polygon[j].dy;
 
-      final intersect = ((yi > point.dy) != (yj > point.dy)) &&
+      final intersect =
+          ((yi > point.dy) != (yj > point.dy)) &&
           (point.dx <
-              (xj - xi) * (point.dy - yi) / ((yj - yi).abs() < 1e-6 ? 1e-6 : (yj - yi)) +
+              (xj - xi) *
+                      (point.dy - yi) /
+                      ((yj - yi).abs() < 1e-6 ? 1e-6 : (yj - yi)) +
                   xi);
       if (intersect) {
         inside = !inside;
@@ -929,12 +928,7 @@ class TextOverlayPainter extends CustomPainter {
       }
 
       final polygon = block.points
-          .map(
-            (point) => ui.Offset(
-              point.dx * scaleX,
-              point.dy * scaleY,
-            ),
-          )
+          .map((point) => ui.Offset(point.dx * scaleX, point.dy * scaleY))
           .toList(growable: false);
 
       if (polygon.length >= 3) {
@@ -945,13 +939,14 @@ class TextOverlayPainter extends CustomPainter {
         path.close();
         canvas.drawPath(path, paint);
       } else {
-        final rect = ui.Rect.fromLTWH(
-          block.x * scaleX,
-          block.y * scaleY,
-          block.width * scaleX,
-          block.height * scaleY,
+        final rect = block.boundingBox;
+        final scaledRect = ui.Rect.fromLTWH(
+          rect.left * scaleX,
+          rect.top * scaleY,
+          rect.width * scaleX,
+          rect.height * scaleY,
         );
-        canvas.drawRect(rect, paint);
+        canvas.drawRect(scaledRect, paint);
       }
 
       if (block.text.isNotEmpty && polygon.length >= 2) {
@@ -997,7 +992,10 @@ class TextOverlayPainter extends CustomPainter {
           canvas.restore();
         } else {
           final bounds = _polygonBounds(polygon);
-          final textPosition = ui.Offset(bounds.left, bounds.top - textPainter.height);
+          final textPosition = ui.Offset(
+            bounds.left,
+            bounds.top - textPainter.height,
+          );
           textPainter.paint(canvas, textPosition);
         }
       }

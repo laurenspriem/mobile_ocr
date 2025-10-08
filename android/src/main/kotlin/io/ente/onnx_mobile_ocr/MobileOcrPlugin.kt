@@ -106,14 +106,9 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
     }
 
     return ocrResults.boxes.mapIndexed { index, box ->
-      val rect = box.boundingRect()
       mapOf(
         "text" to ocrResults.texts[index],
         "confidence" to ocrResults.scores[index].toDouble(),
-        "x" to rect.left.toDouble(),
-        "y" to rect.top.toDouble(),
-        "width" to rect.width().toDouble(),
-        "height" to rect.height().toDouble(),
         "points" to box.points.map { point ->
           mapOf(
             "x" to point.x.toDouble(),

@@ -54,9 +54,9 @@ final textBlocks = await ocrPlugin.detectText(
 for (final block in textBlocks) {
   print('Text: ${block.text}');
   print('Confidence: ${block.confidence}');
-  print('Position: x=${block.x}, y=${block.y}');
-  print('Size: ${block.width}x${block.height}');
   print('Corners: ${block.points}');
+  final bounds = block.boundingBox;
+  print('Bounds: ${bounds.left}, ${bounds.top} -> ${bounds.right}, ${bounds.bottom}');
 }
 ```
 
@@ -66,8 +66,8 @@ Each `TextBlock` mirrors the shape produced by the PaddleOCR detector:
 
 - `text` – recognized string
 - `confidence` – recognition probability (0–1)
-- `x`, `y`, `width`, `height` – axis-aligned bounding box, useful for quick overlays or cropping
 - `points` – four corner points (clockwise) describing the oriented quadrilateral; the sample app uses these to draw rotated boxes exactly as they appear in the source image
+- `boundingBox` – convenience `Rect` derived from the polygon for quick overlays or cropping
 
 ### Using with Image Picker
 

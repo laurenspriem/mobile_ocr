@@ -125,19 +125,9 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                         ["x": Double(bottomLeft.x), "y": Double(bottomLeft.y)]
                     ]
 
-                    // Calculate bounding box for compatibility
-                    let minX = min(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x)
-                    let maxX = max(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x)
-                    let minY = min(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y)
-                    let maxY = max(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y)
-
                     detectedTexts.append([
                         "text": topCandidate.string,
                         "confidence": topCandidate.confidence,
-                        "x": minX,
-                        "y": minY,
-                        "width": maxX - minX,
-                        "height": maxY - minY,
                         "points": points
                     ])
                 }
@@ -171,16 +161,20 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
 
             // Sort results by position (top to bottom, left to right)
             detectedTexts.sort { first, second in
-                let y1 = first["y"] as? CGFloat ?? 0
-                let y2 = second["y"] as? CGFloat ?? 0
-                let x1 = first["x"] as? CGFloat ?? 0
-                let x2 = second["x"] as? CGFloat ?? 0
+                guard
+                    let firstPoints = first["points"] as? [[String: Double]],
+                    let secondPoints = second["points"] as? [[String: Double]],
+                    let firstRect = self.boundingRect(for: firstPoints),
+                    let secondRect = self.boundingRect(for: secondPoints)
+                else {
+                    return false
+                }
 
                 // Sort by vertical position, then horizontal
-                if abs(y1 - y2) > 10 {
-                    return y1 < y2
+                if abs(firstRect.minY - secondRect.minY) > 10 {
+                    return firstRect.minY < secondRect.minY
                 }
-                return x1 < x2
+                return firstRect.minX < secondRect.minX
             }
 
             // Return results on main thread
@@ -203,5 +197,37 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         UIGraphicsEndImageContext()
 
         return normalizedImage
+    }
+
+    private func boundingRect(for pointMaps: [[String: Double]]) -> CGRect? {
+        guard
+            let firstX = pointMaps.first?["x"],
+            let firstY = pointMaps.first?["y"]
+        else {
+            return nil
+        }
+
+        var minX = firstX
+        var maxX = firstX
+        var minY = firstY
+        var maxY = firstY
+
+        for point in pointMaps {
+            guard let x = point["x"], let y = point["y"] else {
+                continue
+            }
+
+            if x < minX { minX = x }
+            if x > maxX { maxX = x }
+            if y < minY { minY = y }
+            if y > maxY { maxY = y }
+        }
+
+        return CGRect(
+            x: CGFloat(minX),
+            y: CGFloat(minY),
+            width: CGFloat(maxX - minX),
+            height: CGFloat(maxY - minY)
+        )
     }
 }
