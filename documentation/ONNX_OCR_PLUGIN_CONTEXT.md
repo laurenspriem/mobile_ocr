@@ -126,10 +126,8 @@ onnx_ocr_plugin/
 
 - **Method Channel**: Communication with native code
 - **Data Models**:
-  - `OcrResult`: Contains boxes, texts, and confidence scores
-  - `TextBox`: Four corner points defining text region
-  - `TextResult`: Combined box + text + score
-- **Image Support**: Accepts Uint8List (PNG/JPEG format)
+  - `TextBlock`: Text content, confidence score, axis-aligned bounds, and corner points
+- **Image Support**: Accepts file system paths to PNG/JPEG images
 
 #### Sample App Features
 

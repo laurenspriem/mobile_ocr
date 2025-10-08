@@ -47,17 +47,18 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
 
   File? _imageFile;
   Uint8List? _imageBytes;
-  OcrResult? _ocrResult;
+  List<TextBlock>? _detectedText;
   bool _isProcessing = false;
   bool _showTextOverlay = false;
   bool _includeAllConfidenceScores = false;
-  TextResult? _selectedText;
+  TextBlock? _selectedText;
   String _platformVersion = 'Unknown';
   Size? _imageOriginalSize;
   bool _modelsReady = false;
   bool _isPreparingModels = false;
   Future<bool>? _prepareModelsFuture;
   String? _modelVersion;
+  Directory? _assetCacheDirectory;
 
   // Test images list (starting with meme images)
   final List<String> _testImages = [
@@ -147,6 +148,28 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     }
   }
 
+  Future<Directory> _ensureAssetCacheDirectory() async {
+    final existing = _assetCacheDirectory;
+    if (existing != null) {
+      return existing;
+    }
+
+    final dir =
+        await Directory.systemTemp.createTemp('onnx_ocr_assets_cache');
+    _assetCacheDirectory = dir;
+    return dir;
+  }
+
+  Future<File> _writeBytesToCacheFile(
+    Uint8List bytes,
+    String filename,
+  ) async {
+    final cacheDir = await _ensureAssetCacheDirectory();
+    final file = File('${cacheDir.path}/$filename');
+    await file.writeAsBytes(bytes, flush: true);
+    return file;
+  }
+
   Future<bool> _ensureModelsReady() {
     final existing = _prepareModelsFuture;
     if (existing != null) {
@@ -204,6 +227,10 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       final assetPath = _testImages[_currentTestImageIndex];
       final bytes = await rootBundle.load(assetPath);
       final imageBytes = bytes.buffer.asUint8List();
+      final cachedFile = await _writeBytesToCacheFile(
+        imageBytes,
+        assetPath.split('/').last,
+      );
 
       // Decode image to get dimensions
       final codec = await ui.instantiateImageCodec(imageBytes);
@@ -211,13 +238,13 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       final uiImage = frame.image;
 
       setState(() {
-        _imageFile = null; // Not from file picker
+        _imageFile = cachedFile;
         _imageBytes = imageBytes;
         _imageOriginalSize = Size(
           uiImage.width.toDouble(),
           uiImage.height.toDouble(),
         );
-        _ocrResult = null;
+        _detectedText = null;
         _showTextOverlay = false;
         _selectedText = null;
       });
@@ -300,7 +327,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
           uiImage.width.toDouble(),
           uiImage.height.toDouble(),
         );
-        _ocrResult = null;
+        _detectedText = null;
         _showTextOverlay = false;
         _selectedText = null;
       });
@@ -312,8 +339,14 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   }
 
   Future<void> _performOcr() async {
-    if (_imageBytes == null) {
+    final imageFile = _imageFile;
+    if (imageFile == null) {
       _showError('Please select an image first');
+      return;
+    }
+
+    if (!await imageFile.exists()) {
+      _showError('Image file not found on disk.');
       return;
     }
 
@@ -332,11 +365,11 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
 
     try {
       final result = await _ocrPlugin.detectText(
-        _imageBytes!,
+        imagePath: imageFile.path,
         includeAllConfidenceScores: _includeAllConfidenceScores,
       );
       setState(() {
-        _ocrResult = result;
+        _detectedText = result;
         _showTextOverlay = true;
       });
 
@@ -344,15 +377,15 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
         _showMessage('No text detected in the image');
         print('No text detected');
       } else {
-        _showMessage('Detected ${result.texts.length} text region(s)');
+        _showMessage('Detected ${result.length} text region(s)');
 
         // Log recognized texts
         print('\n========== OCR RESULTS ==========');
-        print('Total regions detected: ${result.texts.length}');
+        print('Total regions detected: ${result.length}');
         print('\nRecognized texts:');
-        for (int i = 0; i < result.texts.length; i++) {
+        for (int i = 0; i < result.length; i++) {
           print(
-            '${i + 1}. [${(result.scores[i] * 100).toStringAsFixed(1)}%] ${result.texts[i]}',
+            '${i + 1}. [${(result[i].confidence * 100).toStringAsFixed(1)}%] ${result[i].text}',
           );
         }
         print('================================\n');
@@ -395,8 +428,11 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     RenderBox renderBox,
     BoxFit fit,
   ) {
-    if (_ocrResult == null || !_showTextOverlay || _imageOriginalSize == null)
+    if (_detectedText == null ||
+        !_showTextOverlay ||
+        _imageOriginalSize == null) {
       return;
+    }
 
     // Get the actual position and size of the displayed image
     final localPosition = renderBox.globalToLocal(details.globalPosition);
@@ -422,11 +458,11 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     final imageY = relativeY * _imageOriginalSize!.height;
     final imagePoint = ui.Offset(imageX, imageY);
 
-    // Find which text box was tapped
-    for (int i = 0; i < _ocrResult!.boxes.length; i++) {
-      if (_ocrResult!.boxes[i].contains(imagePoint)) {
+    // Find which text block was tapped
+    for (final block in _detectedText!) {
+      if (_polygonContainsPoint(block.points, imagePoint)) {
         setState(() {
-          _selectedText = _ocrResult!.getResultAt(i);
+          _selectedText = block;
         });
         _showTextDialog();
         break;
@@ -451,7 +487,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Confidence: ${(_selectedText!.score * 100).toStringAsFixed(1)}%',
+              'Confidence: ${(_selectedText!.confidence * 100).toStringAsFixed(1)}%',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -475,7 +511,8 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   }
 
   void _showAllDetectedText() {
-    if (_ocrResult == null || _ocrResult!.isEmpty) {
+    final blocks = _detectedText;
+    if (blocks == null || blocks.isEmpty) {
       _showMessage('No text detected');
       return;
     }
@@ -483,32 +520,31 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('All Detected Text (${_ocrResult!.texts.length} items)'),
+        title: Text('All Detected Text (${blocks.length} items)'),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
             shrinkWrap: true,
-            itemCount: _ocrResult!.texts.length,
+            itemCount: blocks.length,
             itemBuilder: (context, index) {
-              final text = _ocrResult!.texts[index];
-              final score = _ocrResult!.scores[index];
+              final block = blocks[index];
               return Card(
                 margin: const EdgeInsets.symmetric(vertical: 4),
                 child: ListTile(
                   title: SelectableText(
-                    text,
+                    block.text,
                     style: const TextStyle(fontSize: 14),
                   ),
                   subtitle: Text(
-                    'Confidence: ${(score * 100).toStringAsFixed(1)}%',
+                    'Confidence: ${(block.confidence * 100).toStringAsFixed(1)}%',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.copy, size: 20),
                     onPressed: () {
-                      Clipboard.setData(ClipboardData(text: text));
+                      Clipboard.setData(ClipboardData(text: block.text));
                       _showMessage(
-                        'Copied: ${text.substring(0, text.length.clamp(0, 30))}...',
+                        'Copied: ${block.text.substring(0, block.text.length.clamp(0, 30))}...',
                       );
                     },
                   ),
@@ -520,7 +556,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
         actions: [
           TextButton(
             onPressed: () {
-              final allText = _ocrResult!.texts.join('\n');
+              final allText = blocks.map((b) => b.text).join('\n');
               Clipboard.setData(ClipboardData(text: allText));
               Navigator.pop(context);
               _showMessage('All text copied to clipboard');
@@ -629,13 +665,14 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                                     fit: BoxFit.contain,
                                   ),
                             if (_showTextOverlay &&
-                                _ocrResult != null &&
+                                _detectedText != null &&
+                                _detectedText!.isNotEmpty &&
                                 _imageOriginalSize != null)
                               CustomPaint(
                                 size: constraints.biggest,
                                 painter: TextOverlayPainter(
-                                  ocrResult: _ocrResult!,
-                                  selectedText: _selectedText,
+                                  textBlocks: _detectedText!,
+                                  selectedBlock: _selectedText,
                                   imageOriginalSize: _imageOriginalSize!,
                                   displaySize: constraints.biggest,
                                   fit: BoxFit.contain,
@@ -651,7 +688,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                if (_ocrResult != null)
+                if (_detectedText != null)
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
@@ -661,7 +698,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        Text('Found: ${_ocrResult!.texts.length} text(s)'),
+                        Text('Found: ${_detectedText!.length} text(s)'),
                         Row(
                           children: [
                             const Text('Overlay'),
@@ -810,18 +847,41 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       ),
     );
   }
+
+  bool _polygonContainsPoint(List<ui.Offset> polygon, ui.Offset point) {
+    if (polygon.length < 3) {
+      return false;
+    }
+
+    var inside = false;
+    for (int i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      final xi = polygon[i].dx;
+      final yi = polygon[i].dy;
+      final xj = polygon[j].dx;
+      final yj = polygon[j].dy;
+
+      final intersect = ((yi > point.dy) != (yj > point.dy)) &&
+          (point.dx <
+              (xj - xi) * (point.dy - yi) / ((yj - yi).abs() < 1e-6 ? 1e-6 : (yj - yi)) +
+                  xi);
+      if (intersect) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
 }
 
 class TextOverlayPainter extends CustomPainter {
-  final OcrResult ocrResult;
-  final TextResult? selectedText;
+  final List<TextBlock> textBlocks;
+  final TextBlock? selectedBlock;
   final Size imageOriginalSize;
   final Size displaySize;
   final BoxFit fit;
 
   TextOverlayPainter({
-    required this.ocrResult,
-    this.selectedText,
+    required this.textBlocks,
+    this.selectedBlock,
     required this.imageOriginalSize,
     required this.displaySize,
     required this.fit,
@@ -829,19 +889,15 @@ class TextOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Calculate the actual image display area considering BoxFit.contain
     final fittedSizes = applyBoxFit(fit, imageOriginalSize, displaySize);
     final FittedSizes(:destination, :source) = fittedSizes;
 
-    // Calculate offset where image is rendered (for centering)
     final dx = (displaySize.width - destination.width) / 2;
     final dy = (displaySize.height - destination.height) / 2;
 
-    // Save the canvas state and translate to image position
     canvas.save();
     canvas.translate(dx, dy);
 
-    // Scale factor from original image to displayed image
     final scaleX = destination.width / imageOriginalSize.width;
     final scaleY = destination.height / imageOriginalSize.height;
 
@@ -849,69 +905,73 @@ class TextOverlayPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
-    for (int i = 0; i < ocrResult.boxes.length; i++) {
-      final box = ocrResult.boxes[i];
-      final text = ocrResult.texts[i];
-      final score = ocrResult.scores[i];
+    for (final block in textBlocks) {
+      final isSelected = identical(selectedBlock, block);
+      final score = block.confidence;
 
-      // Set color based on selection and confidence
-      if (selectedText != null && selectedText!.box == box) {
-        paint.color = Colors.blue;
-        paint.strokeWidth = 3.0;
+      if (isSelected) {
+        paint
+          ..color = Colors.blue
+          ..strokeWidth = 3.0;
       } else if (score > 0.8) {
-        paint.color = Colors.green;
-        paint.strokeWidth = 2.0;
+        paint
+          ..color = Colors.green
+          ..strokeWidth = 2.0;
       } else if (score > 0.5) {
-        paint.color = Colors.orange;
-        paint.strokeWidth = 2.0;
+        paint
+          ..color = Colors.orange
+          ..strokeWidth = 2.0;
       } else {
-        paint.color = Colors.red.withOpacity(0.7);
-        paint.strokeWidth = 2.0;
+        paint
+          ..color = const Color(0xB3F44336)
+          ..strokeWidth = 2.0;
       }
 
-      // Draw the text box with scaled coordinates
-      final path = Path();
-      if (box.points.isNotEmpty) {
-        final scaledPoints = box.points
-            .map((p) => Offset(p.dx * scaleX, p.dy * scaleY))
-            .toList();
+      final polygon = block.points
+          .map(
+            (point) => ui.Offset(
+              point.dx * scaleX,
+              point.dy * scaleY,
+            ),
+          )
+          .toList(growable: false);
 
-        path.moveTo(scaledPoints.first.dx, scaledPoints.first.dy);
-        for (int j = 1; j < scaledPoints.length; j++) {
-          path.lineTo(scaledPoints[j].dx, scaledPoints[j].dy);
+      if (polygon.length >= 3) {
+        final path = Path()..moveTo(polygon.first.dx, polygon.first.dy);
+        for (int i = 1; i < polygon.length; i++) {
+          path.lineTo(polygon[i].dx, polygon[i].dy);
         }
         path.close();
         canvas.drawPath(path, paint);
+      } else {
+        final rect = ui.Rect.fromLTWH(
+          block.x * scaleX,
+          block.y * scaleY,
+          block.width * scaleX,
+          block.height * scaleY,
+        );
+        canvas.drawRect(rect, paint);
+      }
 
-        // Draw text label
-        if (text.isNotEmpty && scaledPoints.isNotEmpty) {
-          // Find the top-left point for label positioning
-          double minY = scaledPoints.first.dy;
-          double minX = scaledPoints.first.dx;
-          for (final point in scaledPoints) {
-            if (point.dy < minY) {
-              minY = point.dy;
-              minX = point.dx;
-            }
-          }
-
-          final textPainter = TextPainter(
-            text: TextSpan(
-              text: text.length > 30 ? '${text.substring(0, 30)}...' : text,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                backgroundColor: paint.color.withOpacity(0.8),
-              ),
+      if (block.text.isNotEmpty && polygon.isNotEmpty) {
+        final bounds = _polygonBounds(polygon);
+        final labelColor = paint.color.withValues(alpha: 0.8);
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: block.text.length > 30
+                ? '${block.text.substring(0, 30)}...'
+                : block.text,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              backgroundColor: labelColor,
             ),
-            textDirection: TextDirection.ltr,
-          );
-          textPainter.layout();
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
 
-          // Position text above the box
-          final textPosition = Offset(minX, minY - 20);
-          textPainter.paint(canvas, textPosition);
-        }
+        final textPosition = ui.Offset(bounds.left, bounds.top - 20);
+        textPainter.paint(canvas, textPosition);
       }
     }
 
@@ -920,9 +980,26 @@ class TextOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(TextOverlayPainter oldDelegate) {
-    return oldDelegate.ocrResult != ocrResult ||
-        oldDelegate.selectedText != selectedText ||
+    return oldDelegate.textBlocks != textBlocks ||
+        oldDelegate.selectedBlock != selectedBlock ||
         oldDelegate.imageOriginalSize != imageOriginalSize ||
-        oldDelegate.displaySize != displaySize;
+        oldDelegate.displaySize != displaySize ||
+        oldDelegate.fit != fit;
+  }
+
+  ui.Rect _polygonBounds(List<ui.Offset> polygon) {
+    double minX = polygon.first.dx;
+    double maxX = polygon.first.dx;
+    double minY = polygon.first.dy;
+    double maxY = polygon.first.dy;
+
+    for (final point in polygon) {
+      if (point.dx < minX) minX = point.dx;
+      if (point.dx > maxX) maxX = point.dx;
+      if (point.dy < minY) minY = point.dy;
+      if (point.dy > maxY) maxY = point.dy;
+    }
+
+    return ui.Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 }

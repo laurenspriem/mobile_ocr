@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
 import 'package:onnx_mobile_ocr/onnx_ocr_plugin_platform_interface.dart';
@@ -14,11 +12,20 @@ class MockOnnxMobileOcrPlatform
   Future<String?> getPlatformVersion() => Future.value('42');
 
   @override
-  Future<Map<dynamic, dynamic>> detectText(
-    Uint8List imageData, {
+  Future<List<Map<dynamic, dynamic>>> detectText({
+    required String imagePath,
     bool includeAllConfidenceScores = false,
   }) async {
-    return {};
+    return [];
+  }
+
+  @override
+  Future<Map<dynamic, dynamic>> prepareModels() async {
+    return {
+      'isReady': true,
+      'version': 'test',
+      'modelPath': '/tmp',
+    };
   }
 }
 

@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -20,16 +18,19 @@ class MethodChannelOnnxMobileOcr extends OnnxMobileOcrPlatform {
   }
 
   @override
-  Future<Map<dynamic, dynamic>> detectText(
-    Uint8List imageData, {
+  Future<List<Map<dynamic, dynamic>>> detectText({
+    required String imagePath,
     bool includeAllConfidenceScores = false,
   }) async {
-    final result = await methodChannel
-        .invokeMethod<Map<dynamic, dynamic>>('detectText', {
-          'imageData': imageData,
-          'includeAllConfidenceScores': includeAllConfidenceScores,
-        });
-    return result ?? {};
+    final result =
+        await methodChannel.invokeListMethod<Map<dynamic, dynamic>>(
+      'detectText',
+      {
+        'imagePath': imagePath,
+        'includeAllConfidenceScores': includeAllConfidenceScores,
+      },
+    );
+    return result ?? const [];
   }
 
   @override

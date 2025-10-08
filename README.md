@@ -35,19 +35,28 @@ final ocrPlugin = OnnxMobileOcr();
 // Ensure ONNX models are cached locally (downloads on first run)
 await ocrPlugin.prepareModels();
 
-// Load image as Uint8List (PNG/JPEG format)
-final Uint8List imageData = await loadImage();
+// Perform OCR by supplying an image path
+final textBlocks = await ocrPlugin.detectText(
+  imagePath: '/path/to/image.png',
+);
 
-// Perform OCR
-final OcrResult result = await ocrPlugin.detectText(imageData);
-
-// Access results
-for (int i = 0; i < result.texts.length; i++) {
-  print('Text: ${result.texts[i]}');
-  print('Confidence: ${result.scores[i]}');
-  print('Box: ${result.boxes[i].points}');
+for (final block in textBlocks) {
+  print('Text: ${block.text}');
+  print('Confidence: ${block.confidence}');
+  print('Position: x=${block.x}, y=${block.y}');
+  print('Size: ${block.width}x${block.height}');
+  print('Corners: ${block.points}');
 }
 ```
+
+#### Detection Output
+
+Each `TextBlock` mirrors the shape produced by the PaddleOCR detector:
+
+- `text` – recognized string
+- `confidence` – recognition probability (0–1)
+- `x`, `y`, `width`, `height` – axis-aligned bounding box, useful for quick overlays or cropping
+- `points` – four corner points (clockwise) describing the oriented quadrilateral; the sample app uses these to draw rotated boxes exactly as they appear in the source image
 
 ### Using with Image Picker
 
@@ -58,9 +67,8 @@ final ImagePicker picker = ImagePicker();
 final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
 if (image != null) {
-  final bytes = await image.readAsBytes();
   await ocrPlugin.prepareModels(); // Optional: ensure models are ready before detection
-  final result = await ocrPlugin.detectText(bytes);
+  final result = await ocrPlugin.detectText(imagePath: image.path);
   // Process results...
 }
 ```

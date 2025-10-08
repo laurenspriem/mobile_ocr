@@ -56,9 +56,9 @@ class OnnxMobileOcrPlugin: FlutterPlugin, MethodCallHandler {
         }
       }
       "detectText" -> {
-        val imageData = call.argument<ByteArray>("imageData")
-        if (imageData == null) {
-          result.error("INVALID_ARGUMENT", "Image data is required", null)
+        val imagePath = call.argument<String>("imagePath")
+        if (imagePath.isNullOrBlank()) {
+          result.error("INVALID_ARGUMENT", "Image path is required", null)
           return
         }
 
@@ -67,7 +67,7 @@ class OnnxMobileOcrPlugin: FlutterPlugin, MethodCallHandler {
         mainScope.launch {
           try {
             val ocrResult = withContext(Dispatchers.IO) {
-              processImage(imageData, includeAllConfidenceScores)
+              processImage(imagePath, includeAllConfidenceScores)
             }
             result.success(ocrResult)
           } catch (e: Exception) {
@@ -84,29 +84,41 @@ class OnnxMobileOcrPlugin: FlutterPlugin, MethodCallHandler {
     }
   }
 
-  private suspend fun processImage(imageData: ByteArray, includeAllConfidenceScores: Boolean = false): Map<String, Any> {
+  private suspend fun processImage(imagePath: String, includeAllConfidenceScores: Boolean = false): List<Map<String, Any>> {
     val processor = getOrCreateProcessor()
 
-    // Decode image
-    val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
-        ?: throw IllegalArgumentException("Failed to decode image")
+    val file = java.io.File(imagePath)
+    if (!file.exists()) {
+      throw IllegalArgumentException("Image file does not exist at path: $imagePath")
+    }
+
+    val bitmap = BitmapFactory.decodeFile(imagePath)
+        ?: throw IllegalArgumentException("Failed to decode image at path: $imagePath")
 
     // Process with OCR
     val ocrResults = processor.processImage(bitmap, includeAllConfidenceScores)
 
-    // Convert results to Flutter-compatible format
-    val results = mutableMapOf<String, Any>()
-    results["boxes"] = ocrResults.boxes.map { box ->
+    if (ocrResults.texts.isEmpty()) {
+      return emptyList()
+    }
+
+    return ocrResults.boxes.mapIndexed { index, box ->
+      val rect = box.boundingRect()
       mapOf(
+        "text" to ocrResults.texts[index],
+        "confidence" to ocrResults.scores[index].toDouble(),
+        "x" to rect.left.toDouble(),
+        "y" to rect.top.toDouble(),
+        "width" to rect.width().toDouble(),
+        "height" to rect.height().toDouble(),
         "points" to box.points.map { point ->
-          mapOf("x" to point.x, "y" to point.y)
+          mapOf(
+            "x" to point.x.toDouble(),
+            "y" to point.y.toDouble()
+          )
         }
       )
     }
-    results["texts"] = ocrResults.texts
-    results["scores"] = ocrResults.scores
-
-    return results
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {

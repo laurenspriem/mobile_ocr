@@ -3,6 +3,7 @@ package io.ente.onnx_mobile_ocr
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PointF
+import android.graphics.RectF
 import android.util.Log
 import ai.onnxruntime.*
 import java.io.File
@@ -17,7 +18,27 @@ data class OcrResult(
 
 data class TextBox(
     val points: List<PointF>
-)
+) {
+    fun boundingRect(): RectF {
+        if (points.isEmpty()) {
+            return RectF()
+        }
+
+        var minX = points[0].x
+        var maxX = points[0].x
+        var minY = points[0].y
+        var maxY = points[0].y
+
+        for (point in points) {
+            if (point.x < minX) minX = point.x
+            if (point.x > maxX) maxX = point.x
+            if (point.y < minY) minY = point.y
+            if (point.y > maxY) maxY = point.y
+        }
+
+        return RectF(minX, minY, maxX, maxY)
+    }
+}
 
 data class DebugOptions(
     val saveCrops: Boolean = false,

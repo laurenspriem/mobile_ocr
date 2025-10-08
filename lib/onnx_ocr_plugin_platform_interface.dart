@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'onnx_ocr_plugin_method_channel.dart';
@@ -29,8 +27,8 @@ abstract class OnnxMobileOcrPlatform extends PlatformInterface {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
 
-  Future<Map<dynamic, dynamic>> detectText(
-    Uint8List imageData, {
+  Future<List<Map<dynamic, dynamic>>> detectText({
+    required String imagePath,
     bool includeAllConfidenceScores = false,
   }) {
     throw UnimplementedError('detectText() has not been implemented.');
