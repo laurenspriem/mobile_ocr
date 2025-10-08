@@ -1,19 +1,20 @@
 import 'dart:io';
 import 'dart:ui';
 
-import 'onnx_ocr_plugin_platform_interface.dart';
+import 'mobile_ocr_plugin_platform_interface.dart';
 
-class OnnxMobileOcr {
+class MobileOcr {
   Future<String?> getPlatformVersion() {
-    return OnnxMobileOcrPlatform.instance.getPlatformVersion();
+    return MobileOcrPlatform.instance.getPlatformVersion();
   }
 
-  /// Ensure that the ONNX models required by the native pipeline are downloaded.
+  /// Ensure that the native OCR models required on Android are downloaded.
   ///
   /// Downloads any missing files, verifies checksums, and caches them on disk.
-  /// Returns a [ModelPreparationStatus] describing the cache status.
+  /// Returns a [ModelPreparationStatus] describing the cache status. This call
+  /// is a no-op on iOS because it relies on the Vision framework.
   Future<ModelPreparationStatus> prepareModels() async {
-    final result = await OnnxMobileOcrPlatform.instance.prepareModels();
+    final result = await MobileOcrPlatform.instance.prepareModels();
     return ModelPreparationStatus.fromMap(result);
   }
 
@@ -31,7 +32,7 @@ class OnnxMobileOcr {
       throw ArgumentError('Image file does not exist at path: $imagePath');
     }
 
-    final results = await OnnxMobileOcrPlatform.instance.detectText(
+    final results = await MobileOcrPlatform.instance.detectText(
       imagePath: file.path,
       includeAllConfidenceScores: includeAllConfidenceScores,
     );

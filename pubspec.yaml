@@ -37,9 +37,9 @@ flutter:
     platforms:
       android:
         package: io.ente.onnx_mobile_ocr
-        pluginClass: OnnxMobileOcrPlugin
+        pluginClass: MobileOcrPlugin
       ios:
-        pluginClass: OnnxMobileOcrPlugin
+        pluginClass: MobileOcrPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
   #

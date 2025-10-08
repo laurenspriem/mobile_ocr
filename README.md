@@ -1,15 +1,25 @@
-# ONNX Mobile OCR
+# Mobile OCR
 
-A Flutter plugin for performing Optical Character Recognition (OCR) using ONNX models. This plugin replicates the functionality of the PaddleOCR v5 models, running directly on Android devices for fast and accurate text detection and recognition.
+Mobile OCR is a Flutter plugin that delivers fully on-device text detection and
+recognition on Android and iOS. The two platforms share the same Dart API:
+
+- **Android (ONNX pipeline)** – A faithful port of the PaddleOCR v5 models,
+  executed with ONNX Runtime for high-accuracy OCR without network access.
+- **iOS (Apple Vision)** – Uses the system Vision framework, so no model
+  downloads are required and the plugin stays lightweight.
+
+Everything below describes the Android pipeline unless explicitly noted. The
+iOS implementation returns the same JSON payload so the Dart surface remains
+identical.
 
 ## Features
 
-- **Text Detection**: Detects text regions in images using DB (Differentiable Binarization) algorithm
-- **Text Recognition**: Recognizes text content using SVTR_LCNet with CTC decoder
-- **Text Angle Classification**: Automatically corrects rotated text (180-degree rotation)
-- **On-device Processing**: All processing happens locally on the device
-- **Support for Multiple Languages**: Includes Chinese and English character recognition
-- **High Performance**: Optimized with ONNX Runtime for mobile devices
+- Text detection (DB algorithm) with oriented bounding polygons
+- Text recognition (SVTR_LCNet + CTC) mirroring PaddleOCR v5 behaviour
+- Text angle classification and auto-rotation for skewed crops
+- On-device processing with no network calls
+- Multi-language character dictionary (Chinese + English)
+- Shared results structure across Android and iOS
 
 ## Installation
 
@@ -27,12 +37,13 @@ dependencies:
 ### Basic Usage
 
 ```dart
-import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
+import 'package:onnx_mobile_ocr/mobile_ocr_plugin.dart';
 
 // Create plugin instance
-final ocrPlugin = OnnxMobileOcr();
+final ocrPlugin = MobileOcr();
 
-// Ensure ONNX models are cached locally (downloads on first run)
+// Android only: ensure ONNX models are cached locally (downloads on first run).
+// No-op on iOS because Vision ships with the OS.
 await ocrPlugin.prepareModels();
 
 // Perform OCR by supplying an image path
@@ -67,7 +78,7 @@ final ImagePicker picker = ImagePicker();
 final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
 if (image != null) {
-  await ocrPlugin.prepareModels(); // Optional: ensure models are ready before detection
+  await ocrPlugin.prepareModels(); // Android: ensure models are ready (no-op on iOS)
   final result = await ocrPlugin.detectText(imagePath: image.path);
   // Process results...
 }
@@ -90,7 +101,7 @@ cd example
 flutter run
 ```
 
-## Model Assets
+## Android Model Assets (ONNX)
 
 The ONNX models (~20 MB total) are **not** bundled with the plugin. They are hosted at
 `https://models.ente.io/PP-OCRv5/` and downloaded on demand the first time you call
@@ -98,18 +109,19 @@ The ONNX models (~20 MB total) are **not** bundled with the plugin. They are h
 verification so subsequent runs work offline. You can call `prepareModels()` during app launch to
 show a download progress indicator before triggering OCR.
 
+iOS does not require this step because it relies on the built-in Vision framework.
+
 ## Platform Support
 
 Currently supports:
-- ✅ Android (API 21+)
-- ⬜ iOS (coming soon)
+- ✅ Android (API 24+)
+- ✅ iOS 14+
 
 ## Acknowledgments
 
 This work would not be possible without:
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) - The original OCR models and algorithms
 - [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) - ONNX implementation and pipeline architecture
-- [RapidOCR](https://github.com/RapidAI/RapidOCR) - ONNX model optimization work
 
 ## License
 

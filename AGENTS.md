@@ -1,16 +1,18 @@
 # Repository Guidelines
 
 ## Project Overview
-- Flutter plugin delivering on-device OCR via PaddleOCR v5 ONNX models.
-- Android Kotlin layer mirrors the original Python `OnnxOCR` pipeline without OpenCV, keeping dependencies lightweight.
+- Flutter plugin delivering on-device OCR across Android and iOS.
+- Android Kotlin layer mirrors the original Python `OnnxOCR` pipeline using PaddleOCR v5 ONNX models (no OpenCV).
+- iOS implementation relies on the Apple Vision framework for text recognition, so no ONNX models are downloaded.
 - Example app in `example/` offers regression checks with meme, receipt, and UI screenshots to validate detection accuracy.
 
 ## Project Structure & Module Organization
-- `lib/` exposes the Dart API: method channel wiring in `onnx_ocr_plugin_method_channel.dart`, platform interface abstractions, and convenience entry points.
-- `android/src/main/kotlin/com/ente/onnx_ocr/` hosts native pipeline code (`OcrProcessor`, `TextDetector`, `TextRecognizer`, `TextClassifier`, utilities).
+- `lib/` exposes the Dart API: method channel wiring in `mobile_ocr_plugin_method_channel.dart`, platform interface abstractions, and convenience entry points.
+- `android/src/main/kotlin/com/ente/onnx_ocr/` hosts the ONNX-based native pipeline (`OcrProcessor`, `TextDetector`, `TextRecognizer`, `TextClassifier`, utilities).
+- `ios/Classes/` provides the Vision-based implementation (`MobileOcrPlugin.swift`).
 - `documentation/` contains the context and implementation guides—treat these as the contract when porting Python behavior.
 - `example/` demonstrates integration, ships reference assets in `example/assets/test_ocr/`, and doubles as the manual verification harness.
-- Models download at runtime via `ModelManager`; nothing under `models/` should be checked in.
+- ONNX models download at runtime via `ModelManager` on Android; nothing under `models/` should be checked in.
 
 ## Build, Test, and Development Commands
 - `flutter pub get` (run here and in `example/`) loads dependencies.

@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'onnx_ocr_plugin_platform_interface.dart';
+import 'mobile_ocr_plugin_platform_interface.dart';
 
-/// An implementation of [OnnxMobileOcrPlatform] that uses method channels.
-class MethodChannelOnnxMobileOcr extends OnnxMobileOcrPlatform {
+/// An implementation of [MobileOcrPlatform] that uses method channels.
+class MethodChannelMobileOcr extends MobileOcrPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
   final methodChannel = const MethodChannel('onnx_mobile_ocr');

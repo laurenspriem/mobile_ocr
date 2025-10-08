@@ -8,7 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
-import 'package:onnx_mobile_ocr/onnx_ocr_plugin.dart';
+import 'package:onnx_mobile_ocr/mobile_ocr_plugin.dart';
 import 'package:image_picker/image_picker.dart';
 
 // Feature flag: Set to true to enable automatic cycling through test images
@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ONNX OCR Demo',
+      title: 'Mobile OCR Demo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -43,7 +43,7 @@ class OcrDemoPage extends StatefulWidget {
 }
 
 class _OcrDemoPageState extends State<OcrDemoPage> {
-  final _ocrPlugin = OnnxMobileOcr();
+  final _ocrPlugin = MobileOcr();
   final ImagePicker _picker = ImagePicker();
 
   File? _imageFile;
@@ -590,7 +590,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     final bool isBusy = _isProcessing || _isPreparingModels;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ONNX OCR Plugin Demo'),
+        title: const Text('Mobile OCR Plugin Demo'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Column(

@@ -1,24 +1,24 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-import 'onnx_ocr_plugin_method_channel.dart';
+import 'mobile_ocr_plugin_method_channel.dart';
 
-abstract class OnnxMobileOcrPlatform extends PlatformInterface {
-  /// Constructs a OnnxMobileOcrPlatform.
-  OnnxMobileOcrPlatform() : super(token: _token);
+abstract class MobileOcrPlatform extends PlatformInterface {
+  /// Constructs a MobileOcrPlatform.
+  MobileOcrPlatform() : super(token: _token);
 
   static final Object _token = Object();
 
-  static OnnxMobileOcrPlatform _instance = MethodChannelOnnxMobileOcr();
+  static MobileOcrPlatform _instance = MethodChannelMobileOcr();
 
-  /// The default instance of [OnnxMobileOcrPlatform] to use.
+  /// The default instance of [MobileOcrPlatform] to use.
   ///
-  /// Defaults to [MethodChannelOnnxMobileOcr].
-  static OnnxMobileOcrPlatform get instance => _instance;
+  /// Defaults to [MethodChannelMobileOcr].
+  static MobileOcrPlatform get instance => _instance;
 
   /// Platform-specific implementations should set this with their own
-  /// platform-specific class that extends [OnnxMobileOcrPlatform] when
+  /// platform-specific class that extends [MobileOcrPlatform] when
   /// they register themselves.
-  static set instance(OnnxMobileOcrPlatform instance) {
+  static set instance(MobileOcrPlatform instance) {
     PlatformInterface.verifyToken(instance, _token);
     _instance = instance;
   }

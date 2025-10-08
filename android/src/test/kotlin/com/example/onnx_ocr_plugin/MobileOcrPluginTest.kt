@@ -1,5 +1,6 @@
 package com.example.onnx_ocr_plugin
 
+import io.ente.onnx_mobile_ocr.MobileOcrPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlin.test.Test
@@ -13,10 +14,10 @@ import org.mockito.Mockito
  * you can run them directly from IDEs that support JUnit such as Android Studio.
  */
 
-internal class OnnxOcrPluginTest {
+internal class MobileOcrPluginTest {
   @Test
   fun onMethodCall_getPlatformVersion_returnsExpectedValue() {
-    val plugin = OnnxOcrPlugin()
+    val plugin = MobileOcrPlugin()
 
     val call = MethodCall("getPlatformVersion", null)
     val mockResult: MethodChannel.Result = Mockito.mock(MethodChannel.Result::class.java)

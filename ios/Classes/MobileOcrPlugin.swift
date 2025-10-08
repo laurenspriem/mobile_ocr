@@ -3,10 +3,10 @@ import UIKit
 import Vision
 import CoreImage
 
-public class OnnxMobileOcrPlugin: NSObject, FlutterPlugin {
+public class MobileOcrPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "onnx_mobile_ocr", binaryMessenger: registrar.messenger())
-        let instance = OnnxMobileOcrPlugin()
+        let instance = MobileOcrPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
     }
 

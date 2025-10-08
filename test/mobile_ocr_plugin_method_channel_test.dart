@@ -1,11 +1,11 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:onnx_mobile_ocr/onnx_ocr_plugin_method_channel.dart';
+import 'package:onnx_mobile_ocr/mobile_ocr_plugin_method_channel.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  MethodChannelOnnxMobileOcr platform = MethodChannelOnnxMobileOcr();
+  MethodChannelMobileOcr platform = MethodChannelMobileOcr();
   const MethodChannel channel = MethodChannel('onnx_mobile_ocr');
 
   setUp(() {

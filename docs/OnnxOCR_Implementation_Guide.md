@@ -1,7 +1,7 @@
 # OnnxOCR Implementation Guide for Flutter Plugin
 
 ## Overview
-The OnnxOCR repository implements a complete OCR pipeline using ONNX runtime with PaddleOCR v5 models. The system consists of three main components working in sequence: text detection, text angle classification (optional), and text recognition.
+The OnnxOCR repository implements a complete OCR pipeline using ONNX runtime with PaddleOCR v5 models. The Android side of the Mobile OCR plugin mirrors this implementation. The system consists of three main components working in sequence: text detection, text angle classification (optional), and text recognition.
 
 ## OCR Pipeline Architecture
 

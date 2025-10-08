@@ -14,8 +14,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** OnnxMobileOcrPlugin */
-class OnnxMobileOcrPlugin: FlutterPlugin, MethodCallHandler {
+/** MobileOcrPlugin */
+class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
   private lateinit var channel : MethodChannel
   private lateinit var context: Context
   private var ocrProcessor: OcrProcessor? = null

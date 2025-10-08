@@ -1,10 +1,10 @@
-# ONNX OCR Flutter Plugin - Development Context
+# Mobile OCR Flutter Plugin - Development Context
 
 ## Project Overview
 
 ### Intention
 
-Create a Flutter plugin (initially Android-only) that performs Optical Character Recognition (OCR) on images using ONNX models. The plugin should:
+Create a Flutter plugin that performs Optical Character Recognition (OCR) on images entirely on device. The Android implementation mirrors PaddleOCR v5 using ONNX Runtime, while the iOS implementation builds on Apple’s Vision framework. The plugin should:
 
 - Take an image as input and return detected text
 - Display selectable text overlay on top of images (similar to iOS apps)
@@ -13,7 +13,7 @@ Create a Flutter plugin (initially Android-only) that performs Optical Character
 
 ### Implementation Strategy
 
-The plugin is a **direct port** of the [OnnxOCR Python implementation](https://github.com/jingsongliujing/OnnxOCR) (cloned in `./OnnxOCR/`) to Android/Kotlin, maintaining exact compatibility with:
+The Android layer is a **direct port** of the [OnnxOCR Python implementation](https://github.com/jingsongliujing/OnnxOCR) (cloned in `./OnnxOCR/`) to Kotlin, maintaining exact compatibility with:
 
 - The same ONNX models (PaddleOCR v5)
 - The same preprocessing/postprocessing logic
@@ -60,21 +60,24 @@ The only exception is ONNX Runtime, which is allowed and needed.
 onnx_ocr_plugin/
 ├── android/                    # Android native implementation
 │   └── src/main/kotlin/
-│       ├── OnnxOcrPlugin.kt   # Main plugin class (Flutter interface)
+│       ├── MobileOcrPlugin.kt   # Main plugin class (Flutter interface)
 │       ├── OcrProcessor.kt     # OCR pipeline orchestrator
 │       ├── TextDetector.kt     # Text detection (DB algorithm)
 │       ├── TextRecognizer.kt   # Text recognition (CTC decoder)
 │       ├── TextClassifier.kt   # Angle classification
 │       ├── ImageUtils.kt       # Image processing utilities
 │       └── ModelManager.kt     # Runtime model download/cache manager
+├── ios/                        # iOS implementation (Vision-based)
+│   └── Classes/
+│       └── MobileOcrPlugin.swift
 ├── lib/                        # Flutter/Dart interface
-│   ├── onnx_ocr_plugin.dart   # Main plugin API
-│   └── onnx_ocr_plugin_platform_interface.dart
+│   ├── mobile_ocr_plugin.dart   # Main plugin API
+│   └── mobile_ocr_plugin_platform_interface.dart
 └── example/                    # Sample app demonstrating usage
 
-> The ONNX models and dictionary are no longer bundled with the plugin.
-> `ModelManager` downloads them on demand from `https://models.ente.io/PP-OCRv5/`
-> and caches them under the host app’s `filesDir/onnx_ocr/PP-OCRv5/`.
+> Android downloads the ONNX models and dictionary on demand from `https://models.ente.io/PP-OCRv5/`
+> and caches them under the host app’s `filesDir/onnx_ocr/PP-OCRv5/`. iOS relies on system Vision
+> APIs and does not need external assets.
 ```
 
 ### OCR Pipeline (Exact Copy of OnnxOCR)
@@ -110,9 +113,14 @@ onnx_ocr_plugin/
    - CTC decoding with blank token removal
    - Character dictionary: ppocrv5_dict.txt (Chinese + English)
 
-### Key Implementation Details
+### iOS Integration
 
-#### Native Layer (Kotlin)
+- Built with Vision’s `VNRecognizeTextRequest`
+- Provides the same response schema (text, confidence, axis-aligned box, polygon points) as Android
+- `prepareModels` short-circuits with a ready response (no downloads required)
+- Runs recognition on a background queue and returns results on the main thread
+
+### Key Implementation Details (Android)
 
 - **ONNX Runtime**: Version 1.16.3 for Android (only allowed external dependency)
 - **Async Processing**: Kotlin coroutines for non-blocking operations
@@ -169,6 +177,11 @@ dependencies {
    }
 ```
 
+### iOS Build Configuration
+
+- No external ML frameworks required; relies on `Vision` and `UIKit`
+- Ensure host apps provide the usual photo access usage descriptions when sourcing images
+
 ### Required Permissions (Android)
 
 ```xml
@@ -182,9 +195,10 @@ dependencies {
 
 The example app is configured for easy testing and verification of OCR functionality:
 
-- On first launch the plugin downloads the ONNX assets from the CDN; ensure the device has network
-  access. Progress is surfaced through the UI via the new `prepareModels()` call.
-- Cached models live in the app sandbox; subsequent runs work offline unless hashes change.
+- On Android, the first launch downloads the ONNX assets from the CDN; ensure the device has network
+  access. Progress is surfaced through the UI via the `prepareModels()` call.
+- Cached models live in the app sandbox; subsequent Android runs work offline unless hashes change.
+- On iOS, `prepareModels()` is a no-op because Vision ships with the OS.
 
 #### Running Tests
 

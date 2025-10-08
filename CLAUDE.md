@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`onnx_mobile_ocr` is a Flutter plugin for on-device OCR using ONNX models. It's a direct port of [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) to Android/Kotlin, maintaining exact compatibility with PaddleOCR v5 models and processing pipeline.
+`onnx_mobile_ocr` is a Flutter plugin for on-device OCR across Android and iOS. The Android implementation directly ports [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) using PaddleOCR v5 models on ONNX Runtime, while the iOS implementation uses Apple’s Vision framework to provide the same API surface without shipping ONNX models.
 
 **Critical Constraint**: NO OpenCV or large SDKs. Only native Android APIs (Bitmap, Canvas, Matrix, Paint) and ONNX Runtime are allowed to prevent native library bloat.
 
@@ -68,8 +68,8 @@ Models are NOT bundled with the plugin:
 
 ### Component Structure
 
-**Native (Kotlin)** - `android/src/main/kotlin/io/ente/onnx_mobile_ocr/`:
-- `OnnxMobileOcrPlugin.kt`: Flutter method channel interface
+**Native (Android)** - `android/src/main/kotlin/io/ente/onnx_mobile_ocr/` (PaddleOCR v5 on ONNX Runtime):
+- `MobileOcrPlugin.kt`: Flutter method channel interface
 - `OcrProcessor.kt`: Pipeline orchestrator
 - `ModelManager.kt`: Download/cache manager
 - `TextDetector.kt`: Detection stage
@@ -77,10 +77,15 @@ Models are NOT bundled with the plugin:
 - `TextRecognizer.kt`: Recognition stage
 - `ImageUtils.kt`: Pure Kotlin image preprocessing (NO OpenCV)
 
+**Native (iOS)** - `ios/Classes/` (Apple Vision framework):
+- `MobileOcrPlugin.swift`: Vision-based text recognition returning the shared result schema
+- Uses `VNRecognizeTextRequest` with language auto-detection where available
+- `prepareModels()` short-circuits with `isReady=true` (no downloads required)
+
 **Flutter (Dart)** - `lib/`:
-- `onnx_ocr_plugin.dart`: Public API (`detectText()`, `prepareModels()`)
-- `onnx_ocr_plugin_platform_interface.dart`: Platform interface
-- `onnx_ocr_plugin_method_channel.dart`: Method channel implementation
+- `mobile_ocr_plugin.dart`: Public API (`detectText()`, `prepareModels()`)
+- `mobile_ocr_plugin_platform_interface.dart`: Platform interface
+- `mobile_ocr_plugin_method_channel.dart`: Method channel implementation
 
 **Models** - Downloaded at runtime:
 - `det.onnx`, `rec.onnx`, `cls.onnx`, `ppocrv5_dict.txt`
@@ -139,8 +144,8 @@ dev_dependencies:
 
 ## Platform Support
 
-- ✅ Android (API 24+)
-- ⬜ iOS (planned)
+- ✅ Android (API 24+, ONNX Runtime + PaddleOCR)
+- ✅ iOS (Vision framework)
 
 ## Reference Documentation
 
