@@ -93,34 +93,51 @@ public class OnnxMobileOcrPlugin: NSObject, FlutterPlugin {
                         continue
                     }
 
-                    let boundingBox = observation.boundingBox
-
                     // Convert normalized coordinates to image coordinates
                     let imageWidth = CGFloat(cgImage.width)
                     let imageHeight = CGFloat(cgImage.height)
 
-                    // Vision uses bottom-left origin, convert to top-left
-                    let x = boundingBox.origin.x * imageWidth
-                    let y = (1 - boundingBox.origin.y - boundingBox.height) * imageHeight
-                    let width = boundingBox.width * imageWidth
-                    let height = boundingBox.height * imageHeight
+                    // VNRecognizedTextObservation inherits from VNRectangleObservation
+                    // Use the actual corner points for accurate polygon representation
+                    // Vision uses bottom-left origin, convert to top-left origin
+                    let topLeft = CGPoint(
+                        x: observation.topLeft.x * imageWidth,
+                        y: (1 - observation.topLeft.y) * imageHeight
+                    )
+                    let topRight = CGPoint(
+                        x: observation.topRight.x * imageWidth,
+                        y: (1 - observation.topRight.y) * imageHeight
+                    )
+                    let bottomRight = CGPoint(
+                        x: observation.bottomRight.x * imageWidth,
+                        y: (1 - observation.bottomRight.y) * imageHeight
+                    )
+                    let bottomLeft = CGPoint(
+                        x: observation.bottomLeft.x * imageWidth,
+                        y: (1 - observation.bottomLeft.y) * imageHeight
+                    )
 
-                    // Get the polygon points from bounding box corners
-                    // Vision framework provides rectangular bounding boxes, so we use the 4 corners
+                    // Create polygon points array
                     let points: [[String: Double]] = [
-                        ["x": Double(x), "y": Double(y)],
-                        ["x": Double(x + width), "y": Double(y)],
-                        ["x": Double(x + width), "y": Double(y + height)],
-                        ["x": Double(x), "y": Double(y + height)]
+                        ["x": Double(topLeft.x), "y": Double(topLeft.y)],
+                        ["x": Double(topRight.x), "y": Double(topRight.y)],
+                        ["x": Double(bottomRight.x), "y": Double(bottomRight.y)],
+                        ["x": Double(bottomLeft.x), "y": Double(bottomLeft.y)]
                     ]
+
+                    // Calculate bounding box for compatibility
+                    let minX = min(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x)
+                    let maxX = max(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x)
+                    let minY = min(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y)
+                    let maxY = max(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y)
 
                     detectedTexts.append([
                         "text": topCandidate.string,
                         "confidence": topCandidate.confidence,
-                        "x": x,
-                        "y": y,
-                        "width": width,
-                        "height": height,
+                        "x": minX,
+                        "y": minY,
+                        "width": maxX - minX,
+                        "height": maxY - minY,
                         "points": points
                     ])
                 }

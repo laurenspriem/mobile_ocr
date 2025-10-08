@@ -10,9 +10,9 @@ Pod::Spec.new do |s|
 A Flutter plugin for on-device OCR using native iOS Vision framework.
 Provides text detection and recognition capabilities without requiring external model downloads.
                        DESC
-  s.homepage         = 'https://github.com/yourusername/onnx_mobile_ocr'
+  s.homepage         = 'https://github.com/laurenspriem/onnx_mobile_ocr'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'Ente' => 'support@ente.io' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
