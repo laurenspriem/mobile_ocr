@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:onnx_mobile_ocr/mobile_ocr_plugin.dart';
 import 'package:onnx_mobile_ocr/mobile_ocr_plugin_platform_interface.dart';
 import 'package:onnx_mobile_ocr/mobile_ocr_plugin_method_channel.dart';
+import 'package:onnx_mobile_ocr/models/text_block.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 class MockMobileOcrPlatform
