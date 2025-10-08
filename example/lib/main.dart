@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -953,8 +954,7 @@ class TextOverlayPainter extends CustomPainter {
         canvas.drawRect(rect, paint);
       }
 
-      if (block.text.isNotEmpty && polygon.isNotEmpty) {
-        final bounds = _polygonBounds(polygon);
+      if (block.text.isNotEmpty && polygon.length >= 2) {
         final labelColor = paint.color.withValues(alpha: 0.8);
         final textPainter = TextPainter(
           text: TextSpan(
@@ -970,8 +970,36 @@ class TextOverlayPainter extends CustomPainter {
           textDirection: TextDirection.ltr,
         )..layout();
 
-        final textPosition = ui.Offset(bounds.left, bounds.top - 20);
-        textPainter.paint(canvas, textPosition);
+        final topLeft = polygon.first;
+        final topRight = polygon[1];
+        final edgeVector = topRight - topLeft;
+        final edgeLength = edgeVector.distance;
+
+        if (edgeLength > 1e-3) {
+          final angle = math.atan2(edgeVector.dy, edgeVector.dx);
+          final normal = ui.Offset(-edgeVector.dy, edgeVector.dx);
+          final normalLength = normal.distance;
+          final unitNormal = normalLength > 1e-3
+              ? normal / normalLength
+              : const ui.Offset(0, -1);
+          const labelGap = 6.0;
+          final midpoint = ui.Offset(
+            (topLeft.dx + topRight.dx) / 2,
+            (topLeft.dy + topRight.dy) / 2,
+          );
+          final anchor = midpoint + unitNormal * labelGap;
+
+          canvas.save();
+          canvas.translate(anchor.dx, anchor.dy);
+          canvas.rotate(angle);
+          canvas.translate(-textPainter.width / 2, -textPainter.height);
+          textPainter.paint(canvas, ui.Offset.zero);
+          canvas.restore();
+        } else {
+          final bounds = _polygonBounds(polygon);
+          final textPosition = ui.Offset(bounds.left, bounds.top - textPainter.height);
+          textPainter.paint(canvas, textPosition);
+        }
       }
     }
 
