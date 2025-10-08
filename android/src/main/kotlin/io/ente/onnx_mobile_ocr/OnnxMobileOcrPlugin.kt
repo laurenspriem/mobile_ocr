@@ -3,6 +3,8 @@ package io.ente.onnx_mobile_ocr
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -94,9 +96,10 @@ class OnnxMobileOcrPlugin: FlutterPlugin, MethodCallHandler {
 
     val bitmap = BitmapFactory.decodeFile(imagePath)
         ?: throw IllegalArgumentException("Failed to decode image at path: $imagePath")
+    val correctedBitmap = applyExifOrientation(bitmap, imagePath)
 
     // Process with OCR
-    val ocrResults = processor.processImage(bitmap, includeAllConfidenceScores)
+    val ocrResults = processor.processImage(correctedBitmap, includeAllConfidenceScores)
 
     if (ocrResults.texts.isEmpty()) {
       return emptyList()
@@ -119,6 +122,45 @@ class OnnxMobileOcrPlugin: FlutterPlugin, MethodCallHandler {
         }
       )
     }
+  }
+
+  private fun applyExifOrientation(source: Bitmap, imagePath: String): Bitmap {
+    return runCatching {
+      val exif = ExifInterface(imagePath)
+      val orientation = exif.getAttributeInt(
+        ExifInterface.TAG_ORIENTATION,
+        ExifInterface.ORIENTATION_NORMAL
+      )
+
+      val matrix = Matrix()
+      var transformed = true
+      when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+          matrix.postRotate(90f)
+          matrix.preScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+          matrix.postRotate(270f)
+          matrix.preScale(-1f, 1f)
+        }
+        else -> transformed = false
+      }
+
+      if (!transformed || matrix.isIdentity) {
+        source
+      } else {
+        Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true).also {
+          if (it != source && !source.isRecycled) {
+            source.recycle()
+          }
+        }
+      }
+    }.getOrDefault(source)
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
