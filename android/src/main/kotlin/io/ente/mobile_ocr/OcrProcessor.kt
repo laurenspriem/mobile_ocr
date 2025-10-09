@@ -94,72 +94,89 @@ class OcrProcessor(
     }
 
     fun processImage(bitmap: Bitmap, includeAllConfidenceScores: Boolean = false): OcrResult {
-        // Step 1: Text Detection
-        val detectionResult = detectText(bitmap)
-
-        if (detectionResult.isEmpty()) {
-            return OcrResult(emptyList(), emptyList(), emptyList())
-        }
-
-        // Step 2: Crop text regions
-        val croppedImages = detectionResult.mapIndexed { index, box ->
-            val cropped = cropTextRegion(bitmap, box)
-            saveDebugBitmap(cropped, "crop", index, "raw")
-            cropped
-        }.toMutableList()
-
-        val classificationMask = BooleanArray(croppedImages.size)
-
-        if (useAngleClassification) {
-            val aspectCandidates = croppedImages.mapIndexedNotNull { index, image ->
-                val aspectRatio = image.width.toFloat() / image.height
-                if (aspectRatio < ANGLE_ASPECT_RATIO_THRESHOLD) index else null
-            }
-            classifyAndRotateIndices(croppedImages, aspectCandidates, classificationMask, "angle_aspect")
-        }
-
-        // Step 3: Text recognition
-        val recognitionResults = recognizeText(croppedImages).toMutableList()
-
-        if (useAngleClassification && recognitionResults.isNotEmpty()) {
-            val lowConfidenceIndices = recognitionResults.mapIndexedNotNull { index, result ->
-                if (!classificationMask[index] && result.second < LOW_CONFIDENCE_THRESHOLD) index else null
+        return OcrPerformanceLogger.trace("OcrProcessor#processImage") {
+            val detectionResult = OcrPerformanceLogger.trace("OcrProcessor#detectText") {
+                detectText(bitmap)
             }
 
-            if (lowConfidenceIndices.isNotEmpty()) {
-                classifyAndRotateIndices(croppedImages, lowConfidenceIndices, classificationMask, "angle_confidence")
-                val refreshed = recognizeText(lowConfidenceIndices.map { croppedImages[it] })
-                lowConfidenceIndices.forEachIndexed { refreshedIndex, originalIndex ->
-                    val current = recognitionResults[originalIndex]
-                    val updated = refreshed[refreshedIndex]
-                    recognitionResults[originalIndex] = if (updated.second > current.second) updated else current
+            if (detectionResult.isEmpty()) {
+                OcrPerformanceLogger.log("OcrProcessor: no detections found")
+                return@trace OcrResult(emptyList(), emptyList(), emptyList())
+            }
+
+            OcrPerformanceLogger.log("OcrProcessor: detected ${detectionResult.size} regions")
+
+            val croppedImages = OcrPerformanceLogger.trace("OcrProcessor#cropTextRegions") {
+                detectionResult.mapIndexed { index, box ->
+                    val cropped = cropTextRegion(bitmap, box)
+                    saveDebugBitmap(cropped, "crop", index, "raw")
+                    cropped
+                }.toMutableList()
+            }
+
+            val classificationMask = BooleanArray(croppedImages.size)
+
+            if (useAngleClassification) {
+                val aspectCandidates = OcrPerformanceLogger.trace("OcrProcessor#selectAspectCandidates") {
+                    croppedImages.mapIndexedNotNull { index, image ->
+                        val aspectRatio = image.width.toFloat() / image.height
+                        if (aspectRatio < ANGLE_ASPECT_RATIO_THRESHOLD) index else null
+                    }
+                }
+                if (aspectCandidates.isNotEmpty()) {
+                    classifyAndRotateIndices(croppedImages, aspectCandidates, classificationMask, "angle_aspect")
                 }
             }
-        }
 
-        if (debugOptions.logRecognition) {
-            logDebug("Detected ${recognitionResults.size} regions")
-            recognitionResults.forEachIndexed { index, (text, score) ->
-                logDebug("[$index] score=${"%.3f".format(score)} text=$text")
+            val recognitionResults = OcrPerformanceLogger.trace("OcrProcessor#recognizeText") {
+                recognizeText(croppedImages).toMutableList()
             }
-        }
 
-        // Step 4: Filter by confidence score
-        val minThreshold = if (includeAllConfidenceScores) FALLBACK_MIN_RECOGNITION_SCORE else MIN_RECOGNITION_SCORE
-        val filteredResults = mutableListOf<TextBox>()
-        val filteredTexts = mutableListOf<String>()
-        val filteredScores = mutableListOf<Float>()
+            if (useAngleClassification && recognitionResults.isNotEmpty()) {
+                val lowConfidenceIndices = OcrPerformanceLogger.trace("OcrProcessor#selectLowConfidence") {
+                    recognitionResults.mapIndexedNotNull { index, result ->
+                        if (!classificationMask[index] && result.second < LOW_CONFIDENCE_THRESHOLD) index else null
+                    }
+                }
 
-        for (i in recognitionResults.indices) {
-            val (text, score) = recognitionResults[i]
-            if (score >= minThreshold) {
-                filteredResults.add(detectionResult[i])
-                filteredTexts.add(text)
-                filteredScores.add(score)
+                if (lowConfidenceIndices.isNotEmpty()) {
+                    classifyAndRotateIndices(croppedImages, lowConfidenceIndices, classificationMask, "angle_confidence")
+                    val refreshed = OcrPerformanceLogger.trace("OcrProcessor#reRecognizeLowConfidence") {
+                        recognizeText(lowConfidenceIndices.map { croppedImages[it] })
+                    }
+                    lowConfidenceIndices.forEachIndexed { refreshedIndex, originalIndex ->
+                        val current = recognitionResults[originalIndex]
+                        val updated = refreshed[refreshedIndex]
+                        recognitionResults[originalIndex] = if (updated.second > current.second) updated else current
+                    }
+                }
             }
-        }
 
-        return OcrResult(filteredResults, filteredTexts, filteredScores)
+            if (debugOptions.logRecognition) {
+                logDebug("Detected ${recognitionResults.size} regions")
+                recognitionResults.forEachIndexed { index, (text, score) ->
+                    logDebug("[$index] score=${"%.3f".format(score)} text=$text")
+                }
+            }
+
+            val minThreshold = if (includeAllConfidenceScores) FALLBACK_MIN_RECOGNITION_SCORE else MIN_RECOGNITION_SCORE
+            val filteredResults = mutableListOf<TextBox>()
+            val filteredTexts = mutableListOf<String>()
+            val filteredScores = mutableListOf<Float>()
+
+            for (i in recognitionResults.indices) {
+                val (text, score) = recognitionResults[i]
+                if (score >= minThreshold) {
+                    filteredResults.add(detectionResult[i])
+                    filteredTexts.add(text)
+                    filteredScores.add(score)
+                }
+            }
+
+            OcrPerformanceLogger.log("OcrProcessor: returning ${filteredResults.size} results after filtering")
+
+            OcrResult(filteredResults, filteredTexts, filteredScores)
+        }
     }
 
     private fun detectText(bitmap: Bitmap): List<TextBox> {
@@ -185,14 +202,16 @@ class OcrProcessor(
         val session = classificationSession
             ?: throw IllegalStateException("Angle classification requested but model not loaded")
 
-        val classifier = TextClassifier(session, ortEnv)
-        val subset = indices.map { images[it] }
-        val rotated = classifier.classifyAndRotate(subset)
+        OcrPerformanceLogger.trace("OcrProcessor#classifyAndRotate(stage=$stageLabel)") {
+            val classifier = TextClassifier(session, ortEnv)
+            val subset = indices.map { images[it] }
+            val rotated = classifier.classifyAndRotate(subset)
 
-        indices.forEachIndexed { idx, imageIndex ->
-            classificationMask[imageIndex] = true
-            images[imageIndex] = rotated[idx]
-            saveDebugBitmap(rotated[idx], "crop", imageIndex, stageLabel)
+            indices.forEachIndexed { idx, imageIndex ->
+                classificationMask[imageIndex] = true
+                images[imageIndex] = rotated[idx]
+                saveDebugBitmap(rotated[idx], "crop", imageIndex, stageLabel)
+            }
         }
     }
 

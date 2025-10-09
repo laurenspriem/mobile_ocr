@@ -22,30 +22,38 @@ class TextDetector(
     }
 
     fun detect(bitmap: Bitmap): List<TextBox> {
-        val originalWidth = bitmap.width
-        val originalHeight = bitmap.height
+        return OcrPerformanceLogger.trace("TextDetector#detect") {
+            val originalWidth = bitmap.width
+            val originalHeight = bitmap.height
 
-        // Preprocess image
-        val (inputTensor, resizedWidth, resizedHeight) = preprocessImage(bitmap)
+            val (inputTensor, resizedWidth, resizedHeight) = OcrPerformanceLogger.trace("TextDetector#preprocessImage") {
+                preprocessImage(bitmap)
+            }
 
-        // Run inference
-        val inputs = mapOf("x" to inputTensor)
-        val outputs = session.run(inputs)
-        val output = outputs[0] as OnnxTensor
+            var output: OnnxTensor? = null
+            try {
+                output = OcrPerformanceLogger.trace("TextDetector#runModel") {
+                    val inputs = mapOf("x" to inputTensor)
+                    session.run(inputs)[0] as OnnxTensor
+                }
 
-        // Postprocess to get boxes
-        val boxes = postprocessDetection(
-            output,
-            originalWidth,
-            originalHeight,
-            resizedWidth,
-            resizedHeight
-        )
+                val boxes = OcrPerformanceLogger.trace("TextDetector#postprocessDetection") {
+                    postprocessDetection(
+                        output,
+                        originalWidth,
+                        originalHeight,
+                        resizedWidth,
+                        resizedHeight
+                    )
+                }
 
-        output.close()
-        inputTensor.close()
-
-        return boxes
+                OcrPerformanceLogger.log("TextDetector: produced ${boxes.size} boxes")
+                boxes
+            } finally {
+                output?.close()
+                inputTensor.close()
+            }
+        }
     }
 
     private fun preprocessImage(bitmap: Bitmap): Triple<OnnxTensor, Int, Int> {

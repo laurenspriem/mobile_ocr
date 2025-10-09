@@ -19,58 +19,65 @@ class TextClassifier(
     }
 
     fun classifyAndRotate(images: List<Bitmap>): List<Bitmap> {
-        val results = mutableListOf<Bitmap>()
+        return OcrPerformanceLogger.trace("TextClassifier#classifyAndRotate(count=${images.size})") {
+            val results = mutableListOf<Bitmap>()
 
-        // Process in batches
-        for (i in images.indices step BATCH_SIZE) {
-            val batchEnd = minOf(i + BATCH_SIZE, images.size)
-            val batch = images.subList(i, batchEnd)
+            for (i in images.indices step BATCH_SIZE) {
+                val batchEnd = minOf(i + BATCH_SIZE, images.size)
+                val batch = images.subList(i, batchEnd)
 
-            val rotationFlags = classifyBatch(batch)
+                val rotationFlags = classifyBatch(batch)
 
-            // Apply rotations
-            for (j in batch.indices) {
-                val image = batch[j]
-                val shouldRotate = rotationFlags[j]
+                for (j in batch.indices) {
+                    val image = batch[j]
+                    val shouldRotate = rotationFlags[j]
 
-                results.add(if (shouldRotate) {
-                    rotateImage180(image)
-                } else {
-                    image
-                })
+                    results.add(if (shouldRotate) {
+                        rotateImage180(image)
+                    } else {
+                        image
+                    })
+                }
             }
-        }
 
-        return results
+            OcrPerformanceLogger.log("TextClassifier: processed ${images.size} crops")
+            results
+        }
     }
 
     private fun classifyBatch(batchImages: List<Bitmap>): List<Boolean> {
         if (batchImages.isEmpty()) return emptyList()
 
-        val batchSize = batchImages.size
-        val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * IMG_WIDTH)
+        return OcrPerformanceLogger.trace("TextClassifier#classifyBatch(size=${batchImages.size})") {
+            val batchSize = batchImages.size
+            val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * IMG_WIDTH)
 
-        // Preprocess all images
-        for ((index, image) in batchImages.withIndex()) {
-            preprocessImage(image, inputArray, index)
+            OcrPerformanceLogger.trace("TextClassifier#prepareBatch(size=$batchSize)") {
+                for ((index, image) in batchImages.withIndex()) {
+                    preprocessImage(image, inputArray, index)
+                }
+            }
+
+            val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), IMG_WIDTH.toLong())
+            val inputTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(inputArray), shape)
+
+            var output: OnnxTensor? = null
+            try {
+                output = OcrPerformanceLogger.trace("TextClassifier#runModel(size=$batchSize)") {
+                    val inputs = mapOf(session.inputNames.first() to inputTensor)
+                    session.run(inputs)[0] as OnnxTensor
+                }
+
+                val results = OcrPerformanceLogger.trace("TextClassifier#decodeOutput(size=$batchSize)") {
+                    decodeOutput(output, batchSize)
+                }
+
+                results
+            } finally {
+                output?.close()
+                inputTensor.close()
+            }
         }
-
-        // Create tensor
-        val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), IMG_WIDTH.toLong())
-        val inputTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(inputArray), shape)
-
-        // Run inference
-        val inputs = mapOf(session.inputNames.first() to inputTensor)
-        val outputs = session.run(inputs)
-        val output = outputs[0] as OnnxTensor
-
-        // Decode results
-        val results = decodeOutput(output, batchSize)
-
-        output.close()
-        inputTensor.close()
-
-        return results
     }
 
     private fun preprocessImage(
