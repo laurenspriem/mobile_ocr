@@ -65,6 +65,7 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
   String? _errorMessage;
   Timer? _editorHintTimer;
   bool _showEditorHint = false;
+  bool _isNetworkError = false;
 
   @override
   void initState() {
@@ -128,6 +129,7 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
         _imageFile = null;
         _isFileReady = false;
         _errorMessage = null;
+        _isNetworkError = false;
       });
       _initializeFile();
     }
@@ -142,7 +144,19 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
           _modelsReady = status.isReady;
         })
         .catchError((error, _) {
-          _errorMessage = 'Failed to prepare OCR models: $error';
+          final errorStr = error.toString().toLowerCase();
+          _isNetworkError = errorStr.contains('network') ||
+              errorStr.contains('connection') ||
+              errorStr.contains('timeout') ||
+              errorStr.contains('failed to download') ||
+              errorStr.contains('http');
+
+          if (_isNetworkError) {
+            _errorMessage = 'Network connection required to download OCR models on first use';
+          } else {
+            _errorMessage = 'Could not prepare OCR models';
+          }
+          debugPrint('Model preparation error: $error');
         })
         .whenComplete(() {
           _modelPreparation = null;
@@ -159,6 +173,8 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
       setState(() {
         _isProcessing = true;
         _detectedTextBlocks = null;
+        _errorMessage = null;
+        _isNetworkError = false;
       });
     }
 
@@ -181,7 +197,15 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
       debugPrint('Error detecting text: $e');
       if (mounted && widget.imagePath == imagePath) {
         setState(() {
-          _errorMessage = e.toString();
+          // Show user-friendly message based on error type
+          final errorStr = e.toString().toLowerCase();
+          if (errorStr.contains('image') && errorStr.contains('not') && errorStr.contains('exist')) {
+            _errorMessage = 'Image file not found';
+          } else if (errorStr.contains('failed to decode')) {
+            _errorMessage = 'Could not read image file';
+          } else {
+            _errorMessage = 'Could not detect text in image';
+          }
         });
       }
     } finally {
@@ -243,7 +267,19 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
               bottom: 32,
               left: 16,
               right: 16,
-              child: _buildErrorBanner(_errorMessage!),
+              child: _isNetworkError
+                  ? _buildNetworkErrorBanner(_errorMessage!)
+                  : _buildErrorBanner(_errorMessage!),
+            ),
+          // Show subtle message when no text was detected
+          if (_detectedTextBlocks != null && _detectedTextBlocks!.isEmpty && _errorMessage == null)
+            Positioned(
+              top: 100,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: _buildNoTextMessage(),
+              ),
             ),
         ],
       ),
@@ -343,7 +379,11 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
     }
 
     if (_errorMessage != null) {
-      return _buildErrorBanner(_errorMessage!);
+      return Center(
+        child: _isNetworkError
+            ? _buildNetworkErrorBanner(_errorMessage!)
+            : _buildErrorBanner(_errorMessage!),
+      );
     }
 
     return InteractiveViewer(
@@ -417,22 +457,109 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
   }
 
   Widget _buildErrorBanner(String message) {
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        decoration: BoxDecoration(
-          color: Colors.red.withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(16),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
         ),
-        child: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  Widget _buildNetworkErrorBanner(String message) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.orange.withValues(alpha: 0.3),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orange.withValues(alpha: 0.2),
+            blurRadius: 20,
+            spreadRadius: 2,
           ),
-        ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.cloud_download_outlined,
+            color: Colors.orange.shade300,
+            size: 40,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                _errorMessage = null;
+                _isNetworkError = false;
+                _modelsReady = false;
+              });
+              _detectText();
+            },
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Retry'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.orange.shade300,
+              side: BorderSide(color: Colors.orange.shade300),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoTextMessage() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.search_off,
+            color: Colors.white.withValues(alpha: 0.7),
+            size: 16,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'No text detected',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.8),
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

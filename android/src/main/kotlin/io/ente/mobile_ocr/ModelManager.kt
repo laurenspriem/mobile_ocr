@@ -45,7 +45,7 @@ class ModelManager(private val context: Context) {
     }
 
     private val cacheDirectory: File by lazy {
-        File(context.filesDir, "onnx_ocr/PP-OCRv5")
+        File(context.filesDir, "assets/mobile_ocr")
     }
 
     private val modelMutex = Mutex()

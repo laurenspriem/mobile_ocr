@@ -62,7 +62,7 @@ Direct port of OnnxOCR's processing pipeline:
 Models are NOT bundled with the plugin:
 - **Hosted**: `https://models.ente.io/PP-OCRv5/`
 - **Managed by**: `ModelManager.kt` (download, verify SHA-256, cache)
-- **Cached**: `context.filesDir/onnx_ocr/PP-OCRv5/`
+- **Cached**: `context.filesDir/assets/mobile_ocr/`
 - **Triggered**: First `prepareModels()` call
 - **Offline**: Works offline after initial download
 
