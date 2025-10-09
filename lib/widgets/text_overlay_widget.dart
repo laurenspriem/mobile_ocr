@@ -1386,6 +1386,11 @@ class _EditableBlockPainter extends CustomPainter {
     this.selection,
   });
 
+  static const double _horizontalPadding = 2.5;
+  static const double _verticalPadding = 1.6;
+  static const double _cornerRadius = 4.0;
+  static const double _lineToleranceFactor = 0.7;
+
   final _BlockVisual visual;
   final bool showBoundary;
   final TextSelection? selection;
@@ -1407,25 +1412,86 @@ class _EditableBlockPainter extends CustomPainter {
       if (start < end) {
         final highlightPaint = Paint()
           ..style = PaintingStyle.fill
-          ..color = CupertinoColors.activeBlue.withValues(alpha: 0.35);
+          ..color = CupertinoColors.activeBlue.withValues(alpha: 0.32);
+        final selected = <_CharacterVisual>[];
         for (int index = start; index < end; index++) {
           if (index >= visual.characters.length) break;
           final character = visual.characters[index];
-          if (character.polygon.length >= 3) {
-            final path = Path()..addPolygon(character.polygon, true);
-            canvas.drawPath(path, highlightPaint);
-          } else {
-            canvas.drawRRect(
-              RRect.fromRectAndRadius(
-                character.bounds.inflate(1.5),
-                const Radius.circular(3),
-              ),
-              highlightPaint,
-            );
+          if (character.bounds.isEmpty) {
+            continue;
           }
+          selected.add(character);
+        }
+        for (final rrect in _buildHighlightRegions(selected)) {
+          canvas.drawRRect(rrect, highlightPaint);
         }
       }
     }
+  }
+
+  List<RRect> _buildHighlightRegions(List<_CharacterVisual> characters) {
+    if (characters.isEmpty) {
+      return const [];
+    }
+
+    final mergedRects = <Rect>[];
+    Rect? current;
+
+    for (final character in characters) {
+      final rect = _inflateRect(character.bounds);
+      if (rect.isEmpty) {
+        continue;
+      }
+      if (current == null) {
+        current = rect;
+        continue;
+      }
+
+      if (_isSameLine(current, rect)) {
+        current = _mergeRects(current, rect);
+      } else {
+        mergedRects.add(current);
+        current = rect;
+      }
+    }
+
+    if (current != null) {
+      mergedRects.add(current);
+    }
+
+    return mergedRects
+        .map(
+          (rect) => RRect.fromRectAndRadius(
+            rect,
+            const Radius.circular(_cornerRadius),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Rect _inflateRect(Rect rect) {
+    return Rect.fromLTRB(
+      rect.left - _horizontalPadding,
+      rect.top - _verticalPadding,
+      rect.right + _horizontalPadding,
+      rect.bottom + _verticalPadding,
+    );
+  }
+
+  Rect _mergeRects(Rect a, Rect b) {
+    return Rect.fromLTRB(
+      min(a.left, b.left),
+      min(a.top, b.top),
+      max(a.right, b.right),
+      max(a.bottom, b.bottom),
+    );
+  }
+
+  bool _isSameLine(Rect a, Rect b) {
+    final double verticalDiff = (a.center.dy - b.center.dy).abs();
+    final double maxHeight = max(a.height, b.height);
+    final double effectiveHeight = max(maxHeight, 1.0);
+    return verticalDiff <= effectiveHeight * _lineToleranceFactor;
   }
 
   @override
