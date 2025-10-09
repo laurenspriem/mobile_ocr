@@ -10,10 +10,17 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 
+data class CharacterBox(
+    val text: String,
+    val confidence: Float,
+    val points: List<PointF>
+)
+
 data class OcrResult(
     val boxes: List<TextBox>,
     val texts: List<String>,
-    val scores: List<Float>
+    val scores: List<Float>,
+    val characters: List<List<CharacterBox>>
 )
 
 data class TextBox(
@@ -98,7 +105,7 @@ class OcrProcessor(
         val detectionResult = detectText(bitmap)
 
         if (detectionResult.isEmpty()) {
-            return OcrResult(emptyList(), emptyList(), emptyList())
+            return OcrResult(emptyList(), emptyList(), emptyList(), emptyList())
         }
 
         // Step 2: Crop text regions
@@ -109,13 +116,20 @@ class OcrProcessor(
         }.toMutableList()
 
         val classificationMask = BooleanArray(croppedImages.size)
+        val rotationStates = BooleanArray(croppedImages.size)
 
         if (useAngleClassification) {
             val aspectCandidates = croppedImages.mapIndexedNotNull { index, image ->
                 val aspectRatio = image.width.toFloat() / image.height
                 if (aspectRatio < ANGLE_ASPECT_RATIO_THRESHOLD) index else null
             }
-            classifyAndRotateIndices(croppedImages, aspectCandidates, classificationMask, "angle_aspect")
+            classifyAndRotateIndices(
+                croppedImages,
+                aspectCandidates,
+                classificationMask,
+                rotationStates,
+                "angle_aspect"
+            )
         }
 
         // Step 3: Text recognition
@@ -123,25 +137,40 @@ class OcrProcessor(
 
         if (useAngleClassification && recognitionResults.isNotEmpty()) {
             val lowConfidenceIndices = recognitionResults.mapIndexedNotNull { index, result ->
-                if (!classificationMask[index] && result.second < LOW_CONFIDENCE_THRESHOLD) index else null
+                if (!classificationMask[index] && result.confidence < LOW_CONFIDENCE_THRESHOLD) index else null
             }
 
             if (lowConfidenceIndices.isNotEmpty()) {
-                classifyAndRotateIndices(croppedImages, lowConfidenceIndices, classificationMask, "angle_confidence")
+                classifyAndRotateIndices(
+                    croppedImages,
+                    lowConfidenceIndices,
+                    classificationMask,
+                    rotationStates,
+                    "angle_confidence"
+                )
                 val refreshed = recognizeText(lowConfidenceIndices.map { croppedImages[it] })
                 lowConfidenceIndices.forEachIndexed { refreshedIndex, originalIndex ->
                     val current = recognitionResults[originalIndex]
                     val updated = refreshed[refreshedIndex]
-                    recognitionResults[originalIndex] = if (updated.second > current.second) updated else current
+                    recognitionResults[originalIndex] =
+                        if (updated.confidence > current.confidence) updated else current
                 }
             }
         }
 
         if (debugOptions.logRecognition) {
             logDebug("Detected ${recognitionResults.size} regions")
-            recognitionResults.forEachIndexed { index, (text, score) ->
-                logDebug("[$index] score=${"%.3f".format(score)} text=$text")
+            recognitionResults.forEachIndexed { index, result ->
+                logDebug("[$index] score=${"%.3f".format(result.confidence)} text=${result.text}")
             }
+        }
+
+        val characterBoxesPerDetection = recognitionResults.mapIndexed { index, result ->
+            buildCharacterBoxes(
+                detectionResult[index],
+                result.characterSpans,
+                rotationStates[index]
+            )
         }
 
         // Step 4: Filter by confidence score
@@ -149,17 +178,19 @@ class OcrProcessor(
         val filteredResults = mutableListOf<TextBox>()
         val filteredTexts = mutableListOf<String>()
         val filteredScores = mutableListOf<Float>()
+        val filteredCharacters = mutableListOf<List<CharacterBox>>()
 
         for (i in recognitionResults.indices) {
-            val (text, score) = recognitionResults[i]
-            if (score >= minThreshold) {
+            val recognition = recognitionResults[i]
+            if (recognition.confidence >= minThreshold) {
                 filteredResults.add(detectionResult[i])
-                filteredTexts.add(text)
-                filteredScores.add(score)
+                filteredTexts.add(recognition.text)
+                filteredScores.add(recognition.confidence)
+                filteredCharacters.add(characterBoxesPerDetection[i])
             }
         }
 
-        return OcrResult(filteredResults, filteredTexts, filteredScores)
+        return OcrResult(filteredResults, filteredTexts, filteredScores, filteredCharacters)
     }
 
     private fun detectText(bitmap: Bitmap): List<TextBox> {
@@ -172,10 +203,70 @@ class OcrProcessor(
         return ImageUtils.cropTextRegion(bitmap, orderedPoints)
     }
 
+    private fun buildCharacterBoxes(
+        textBox: TextBox,
+        spans: List<CharacterSpan>,
+        rotated: Boolean
+    ): List<CharacterBox> {
+        if (spans.isEmpty()) {
+            return emptyList()
+        }
+
+        val ordered = ImageUtils.orderPointsClockwise(textBox.points)
+        if (ordered.size != 4) {
+            return emptyList()
+        }
+
+        val topLeft = ordered[0]
+        val topRight = ordered[1]
+        val bottomRight = ordered[2]
+        val bottomLeft = ordered[3]
+
+        val epsilon = 1e-4f
+
+        return spans.mapNotNull { span ->
+            var start = span.startRatio
+            var end = span.endRatio
+
+            if (rotated) {
+                val reversedStart = 1f - end
+                val reversedEnd = 1f - start
+                start = reversedStart.coerceIn(0f, 1f)
+                end = reversedEnd.coerceIn(start + epsilon, 1f)
+            }
+
+            val clampedStart = start.coerceIn(0f, 1f)
+            val clampedEnd = end.coerceIn(clampedStart + epsilon, 1f)
+            if (clampedEnd - clampedStart <= epsilon) {
+                return@mapNotNull null
+            }
+
+            val topStart = interpolate(topLeft, topRight, clampedStart)
+            val topEnd = interpolate(topLeft, topRight, clampedEnd)
+            val bottomStart = interpolate(bottomLeft, bottomRight, clampedStart)
+            val bottomEnd = interpolate(bottomLeft, bottomRight, clampedEnd)
+
+            CharacterBox(
+                text = span.text,
+                confidence = span.confidence,
+                points = listOf(topStart, topEnd, bottomEnd, bottomStart)
+            )
+        }
+    }
+
+    private fun interpolate(start: PointF, end: PointF, ratio: Float): PointF {
+        val clamped = ratio.coerceIn(0f, 1f)
+        return PointF(
+            start.x + (end.x - start.x) * clamped,
+            start.y + (end.y - start.y) * clamped
+        )
+    }
+
     private fun classifyAndRotateIndices(
         images: MutableList<Bitmap>,
         indices: List<Int>,
         classificationMask: BooleanArray,
+        rotationStates: BooleanArray,
         stageLabel: String
     ) {
         if (!useAngleClassification || indices.isEmpty()) {
@@ -187,16 +278,20 @@ class OcrProcessor(
 
         val classifier = TextClassifier(session, ortEnv)
         val subset = indices.map { images[it] }
-        val rotated = classifier.classifyAndRotate(subset)
+        val outputs = classifier.classifyAndRotate(subset)
 
         indices.forEachIndexed { idx, imageIndex ->
             classificationMask[imageIndex] = true
-            images[imageIndex] = rotated[idx]
-            saveDebugBitmap(rotated[idx], "crop", imageIndex, stageLabel)
+            val output = outputs[idx]
+            if (output.rotated) {
+                rotationStates[imageIndex] = !rotationStates[imageIndex]
+            }
+            images[imageIndex] = output.bitmap
+            saveDebugBitmap(output.bitmap, "crop", imageIndex, stageLabel)
         }
     }
 
-    private fun recognizeText(images: List<Bitmap>): List<Pair<String, Float>> {
+    private fun recognizeText(images: List<Bitmap>): List<RecognitionResult> {
         val recognizer = TextRecognizer(recognitionSession, ortEnv, characterDict)
         return recognizer.recognize(images)
     }

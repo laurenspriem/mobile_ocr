@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
@@ -58,6 +59,8 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
   bool _modelsReady = false;
   Future<void>? _modelPreparation;
   String? _errorMessage;
+  Timer? _editorHintTimer;
+  bool _showEditorHint = false;
 
   @override
   void initState() {
@@ -72,15 +75,24 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
     });
   }
 
+  @override
+  void dispose() {
+    _editorHintTimer?.cancel();
+    super.dispose();
+  }
+
   void _initializeFile() {
     // Create file reference (this is just a reference, not actual loading)
     final file = File(widget.imagePath);
 
     if (!mounted) return;
 
+    _editorHintTimer?.cancel();
+
     setState(() {
       _imageFile = file;
       _isFileReady = true;
+      _showEditorHint = false;
     });
 
     // Now that file is ready, start detection if needed
@@ -120,13 +132,17 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
   Future<void> _ensureModelsReady() async {
     if (_modelsReady) return;
 
-    _modelPreparation ??= _ocr.prepareModels().then((status) {
-      _modelsReady = status.isReady;
-    }).catchError((error, _) {
-      _errorMessage = 'Failed to prepare OCR models: $error';
-    }).whenComplete(() {
-      _modelPreparation = null;
-    });
+    _modelPreparation ??= _ocr
+        .prepareModels()
+        .then((status) {
+          _modelsReady = status.isReady;
+        })
+        .catchError((error, _) {
+          _errorMessage = 'Failed to prepare OCR models: $error';
+        })
+        .whenComplete(() {
+          _modelPreparation = null;
+        });
 
     await _modelPreparation;
   }
@@ -148,15 +164,14 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
         throw Exception(_errorMessage);
       }
 
-      final blocks = await _ocr.detectText(
-        imagePath: imagePath,
-      );
+      final blocks = await _ocr.detectText(imagePath: imagePath);
 
       if (mounted && widget.imagePath == imagePath) {
         setState(() {
           _detectedTextBlocks = blocks;
           _errorMessage = null;
         });
+        _handleEditorHint(blocks);
       }
     } catch (e) {
       debugPrint('Error detecting text: $e');
@@ -190,7 +205,10 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(20),
@@ -198,7 +216,10 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CupertinoActivityIndicator(radius: 10, color: Colors.white),
+                      CupertinoActivityIndicator(
+                        radius: 10,
+                        color: Colors.white,
+                      ),
                       SizedBox(width: 8),
                       Text(
                         'Detecting text...',
@@ -209,6 +230,10 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
                 ),
               ),
             ),
+          if (_showEditorHint &&
+              _detectedTextBlocks != null &&
+              _detectedTextBlocks!.isNotEmpty)
+            _buildEditorHint(),
           if (_errorMessage != null)
             Positioned(
               bottom: 32,
@@ -219,6 +244,79 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
         ],
       ),
     );
+  }
+
+  Widget _buildEditorHint() {
+    return Positioned(
+      bottom: 36,
+      left: 0,
+      right: 0,
+      child: IgnorePointer(
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.75),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: CupertinoColors.activeBlue.withValues(alpha: 0.3),
+                width: 0.8,
+              ),
+            ),
+            child: const Text(
+              'Drag across the text to select just what you need',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _handleEditorHint(List<TextBlock> blocks) {
+    _editorHintTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+
+    if (blocks.isEmpty) {
+      if (_showEditorHint) {
+        setState(() {
+          _showEditorHint = false;
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _showEditorHint = true;
+    });
+
+    _editorHintTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showEditorHint = false;
+      });
+    });
+  }
+
+  void _dismissEditorHint() {
+    if (!_showEditorHint) {
+      return;
+    }
+    _editorHintTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showEditorHint = false;
+    });
   }
 
   Widget _buildImageView() {
@@ -233,6 +331,7 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
         textBlocks: _detectedTextBlocks!,
         onTextBlocksSelected: widget.onTextBlocksSelected,
         onTextCopied: widget.onTextCopied,
+        onSelectionStart: _dismissEditorHint,
         showUnselectedBoundaries: widget.showUnselectedBoundaries,
         debugMode: widget.debugMode,
       );

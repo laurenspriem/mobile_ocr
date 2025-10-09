@@ -7,6 +7,11 @@ import java.nio.FloatBuffer
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+data class ClassificationOutput(
+    val bitmap: Bitmap,
+    val rotated: Boolean
+)
+
 class TextClassifier(
     private val session: OrtSession,
     private val ortEnv: OrtEnvironment
@@ -18,8 +23,8 @@ class TextClassifier(
         private const val BATCH_SIZE = 6
     }
 
-    fun classifyAndRotate(images: List<Bitmap>): List<Bitmap> {
-        val results = mutableListOf<Bitmap>()
+    fun classifyAndRotate(images: List<Bitmap>): List<ClassificationOutput> {
+        val results = mutableListOf<ClassificationOutput>()
 
         // Process in batches
         for (i in images.indices step BATCH_SIZE) {
@@ -33,11 +38,13 @@ class TextClassifier(
                 val image = batch[j]
                 val shouldRotate = rotationFlags[j]
 
-                results.add(if (shouldRotate) {
-                    rotateImage180(image)
-                } else {
-                    image
-                })
+                results.add(
+                    if (shouldRotate) {
+                        ClassificationOutput(rotateImage180(image), true)
+                    } else {
+                        ClassificationOutput(image, false)
+                    }
+                )
             }
         }
 

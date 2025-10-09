@@ -125,10 +125,52 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                         ["x": Double(bottomLeft.x), "y": Double(bottomLeft.y)]
                     ]
 
+                    var characterEntries: [[String: Any]] = []
+                    if let charBoxes = topCandidate.characterBoxes, !charBoxes.isEmpty {
+                        let characters = Array(topCandidate.string)
+                        let count = min(charBoxes.count, characters.count)
+
+                        for index in 0..<count {
+                            let charBox = charBoxes[index]
+                            let character = String(characters[index])
+
+                            let charTopLeft = CGPoint(
+                                x: charBox.topLeft.x * imageWidth,
+                                y: (1 - charBox.topLeft.y) * imageHeight
+                            )
+                            let charTopRight = CGPoint(
+                                x: charBox.topRight.x * imageWidth,
+                                y: (1 - charBox.topRight.y) * imageHeight
+                            )
+                            let charBottomRight = CGPoint(
+                                x: charBox.bottomRight.x * imageWidth,
+                                y: (1 - charBox.bottomRight.y) * imageHeight
+                            )
+                            let charBottomLeft = CGPoint(
+                                x: charBox.bottomLeft.x * imageWidth,
+                                y: (1 - charBox.bottomLeft.y) * imageHeight
+                            )
+
+                            let charPoints: [[String: Double]] = [
+                                ["x": Double(charTopLeft.x), "y": Double(charTopLeft.y)],
+                                ["x": Double(charTopRight.x), "y": Double(charTopRight.y)],
+                                ["x": Double(charBottomRight.x), "y": Double(charBottomRight.y)],
+                                ["x": Double(charBottomLeft.x), "y": Double(charBottomLeft.y)]
+                            ]
+
+                            characterEntries.append([
+                                "text": character,
+                                "confidence": Double(topCandidate.confidence),
+                                "points": charPoints
+                            ])
+                        }
+                    }
+
                     detectedTexts.append([
                         "text": topCandidate.string,
                         "confidence": topCandidate.confidence,
-                        "points": points
+                        "points": points,
+                        "characters": characterEntries
                     ])
                 }
             }

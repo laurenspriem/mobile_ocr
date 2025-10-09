@@ -106,15 +106,30 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
     }
 
     return ocrResults.boxes.mapIndexed { index, box ->
-      mapOf(
+      val pointMaps: List<Map<String, Double>> = box.points.map { point ->
+        mapOf(
+          "x" to point.x.toDouble(),
+          "y" to point.y.toDouble()
+        )
+      }
+      val characterMaps: List<Map<String, Any>> = ocrResults.characters.getOrNull(index)?.map { character ->
+        mapOf<String, Any>(
+          "text" to character.text,
+          "confidence" to character.confidence.toDouble(),
+          "points" to character.points.map { charPoint ->
+            mapOf(
+              "x" to charPoint.x.toDouble(),
+              "y" to charPoint.y.toDouble()
+            )
+          }
+        )
+      } ?: emptyList()
+
+      hashMapOf<String, Any>(
         "text" to ocrResults.texts[index],
         "confidence" to ocrResults.scores[index].toDouble(),
-        "points" to box.points.map { point ->
-          mapOf(
-            "x" to point.x.toDouble(),
-            "y" to point.y.toDouble()
-          )
-        }
+        "points" to pointMaps,
+        "characters" to characterMaps
       )
     }
   }

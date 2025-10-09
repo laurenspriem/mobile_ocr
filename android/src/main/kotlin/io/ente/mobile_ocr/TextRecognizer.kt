@@ -5,6 +5,19 @@ import ai.onnxruntime.*
 import java.nio.FloatBuffer
 import kotlin.math.*
 
+data class CharacterSpan(
+    val text: String,
+    val confidence: Float,
+    val startRatio: Float,
+    val endRatio: Float
+)
+
+data class RecognitionResult(
+    val text: String,
+    val confidence: Float,
+    val characterSpans: List<CharacterSpan>
+)
+
 class TextRecognizer(
     private val session: OrtSession,
     private val ortEnv: OrtEnvironment,
@@ -14,16 +27,19 @@ class TextRecognizer(
         private const val IMG_HEIGHT = 48
         private const val IMG_WIDTH = 320
         private const val BATCH_SIZE = 6
+        private const val MIN_SPAN_RATIO = 1e-3f
     }
 
-    fun recognize(images: List<Bitmap>): List<Pair<String, Float>> {
+    fun recognize(images: List<Bitmap>): List<RecognitionResult> {
         if (images.isEmpty()) {
             return emptyList()
         }
 
         val widthList = images.map { it.width.toFloat() / it.height }
         val sortedIndices = widthList.indices.sortedBy { widthList[it] }
-        val orderedResults = MutableList(images.size) { "" to 0f }
+        val orderedResults = MutableList(images.size) {
+            RecognitionResult("", 0f, emptyList())
+        }
 
         for (start in sortedIndices.indices step BATCH_SIZE) {
             val end = min(start + BATCH_SIZE, sortedIndices.size)
@@ -39,7 +55,7 @@ class TextRecognizer(
         return orderedResults
     }
 
-    private fun processBatch(batchImages: List<Bitmap>): List<Pair<String, Float>> {
+    private fun processBatch(batchImages: List<Bitmap>): List<RecognitionResult> {
         if (batchImages.isEmpty()) return emptyList()
 
         // Calculate max width-height ratio for the batch (baseline ratio aligns with Python implementation)
@@ -57,8 +73,10 @@ class TextRecognizer(
         val batchSize = batchImages.size
         val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * targetWidth)
 
+        val contentWidths = IntArray(batchSize)
         for ((index, image) in batchImages.withIndex()) {
-            preprocessImage(image, inputArray, index, targetWidth)
+            val resizedWidth = preprocessImage(image, inputArray, index, targetWidth)
+            contentWidths[index] = resizedWidth
         }
 
         // Create tensor
@@ -71,7 +89,7 @@ class TextRecognizer(
         val output = outputs[0] as OnnxTensor
 
         // Decode results
-        val results = decodeOutput(output, batchSize)
+        val results = decodeOutput(output, batchSize, contentWidths, targetWidth)
 
         output.close()
         inputTensor.close()
@@ -84,7 +102,7 @@ class TextRecognizer(
         outputArray: FloatArray,
         batchIndex: Int,
         targetWidth: Int
-    ) {
+    ): Int {
         // Calculate resize dimensions maintaining aspect ratio
         val aspectRatio = bitmap.width.toFloat() / bitmap.height
         val resizedWidth = min(
@@ -128,22 +146,24 @@ class TextRecognizer(
                 }
             }
         }
+
+        return resizedWidth
     }
 
-    private fun decodeOutput(output: OnnxTensor, batchSize: Int): List<Pair<String, Float>> {
+    private fun decodeOutput(output: OnnxTensor, batchSize: Int, contentWidths: IntArray, targetWidth: Int): List<RecognitionResult> {
         val outputArray = output.floatBuffer.array()
         val shape = output.info.shape
         val seqLen = shape[1].toInt()
         val vocabSize = shape[2].toInt()
 
-        val results = mutableListOf<Pair<String, Float>>()
+        val results = mutableListOf<RecognitionResult>()
 
         for (b in 0 until batchSize) {
             val batchOffset = b * seqLen * vocabSize
 
             // Get argmax and probabilities for each time step
-            val charIndices = mutableListOf<Int>()
-            val probs = mutableListOf<Float>()
+            val charIndices = IntArray(seqLen)
+            val probs = FloatArray(seqLen)
 
             for (t in 0 until seqLen) {
                 val timeOffset = batchOffset + t * vocabSize
@@ -159,36 +179,88 @@ class TextRecognizer(
                     }
                 }
 
-                charIndices.add(maxIndex)
-                probs.add(maxProb)
+                charIndices[t] = maxIndex
+                probs[t] = maxProb
             }
 
-            // CTC decoding with blank removal
-            val text = ctcDecode(charIndices, probs)
-            results.add(text)
+            val contentWidth = if (b < contentWidths.size && contentWidths[b] > 0) {
+                contentWidths[b]
+            } else {
+                targetWidth
+            }
+            val scaleFactor = if (contentWidth >= targetWidth) 1f else targetWidth.toFloat() / contentWidth
+            val recognition = ctcDecode(charIndices, probs, scaleFactor)
+
+            results.add(recognition)
         }
 
         return results
     }
 
-    private fun ctcDecode(charIndices: List<Int>, probs: List<Float>): Pair<String, Float> {
+    private fun ctcDecode(charIndices: IntArray, probs: FloatArray, scale: Float): RecognitionResult {
+        val seqLen = charIndices.size
+        if (seqLen == 0) {
+            return RecognitionResult("", 0f, emptyList())
+        }
+
+        val safeScale = if (scale.isFinite() && scale > 0f) scale else 1f
         val decodedChars = mutableListOf<String>()
         val decodedProbs = mutableListOf<Float>()
+        val spans = mutableListOf<CharacterSpan>()
 
-        var prevIndex = -1
+        var t = 0
+        while (t < seqLen) {
+            val currentIndex = charIndices[t]
 
-        for (i in charIndices.indices) {
-            val currentIndex = charIndices[i]
-
-            // Skip blank token (index 0) and repeated characters
-            if (currentIndex != 0 && currentIndex != prevIndex) {
-                if (currentIndex < characterDict.size) {
-                    decodedChars.add(characterDict[currentIndex])
-                    decodedProbs.add(probs[i])
-                }
+            if (currentIndex == 0) {
+                t++
+                continue
             }
 
-            prevIndex = currentIndex
+            val start = t
+            var end = t + 1
+            var probSum = probs[t]
+            var count = 1
+
+            while (end < seqLen && charIndices[end] == currentIndex) {
+                probSum += probs[end]
+                end++
+                count++
+            }
+
+            if (currentIndex < characterDict.size) {
+                val character = characterDict[currentIndex]
+                decodedChars.add(character)
+
+                val meanProb = probSum / count
+                decodedProbs.add(meanProb)
+
+                val minSpan = ((1f / seqLen) * safeScale).coerceAtLeast(MIN_SPAN_RATIO)
+
+                var startRatio = (start.toFloat() / seqLen) * safeScale
+                var endRatio = (end.toFloat() / seqLen) * safeScale
+
+                startRatio = startRatio.coerceIn(0f, 1f)
+                endRatio = endRatio.coerceIn(startRatio, 1f)
+
+                if (endRatio - startRatio < minSpan) {
+                    endRatio = (startRatio + minSpan).coerceAtMost(1f)
+                    if (endRatio - startRatio < minSpan) {
+                        startRatio = (endRatio - minSpan).coerceAtLeast(0f)
+                    }
+                }
+
+                spans.add(
+                    CharacterSpan(
+                        text = character,
+                        confidence = meanProb,
+                        startRatio = startRatio,
+                        endRatio = endRatio
+                    )
+                )
+            }
+
+            t = end
         }
 
         val text = decodedChars.joinToString("")
@@ -198,6 +270,6 @@ class TextRecognizer(
             0f
         }
 
-        return text to confidence
+        return RecognitionResult(text, confidence, spans)
     }
 }
