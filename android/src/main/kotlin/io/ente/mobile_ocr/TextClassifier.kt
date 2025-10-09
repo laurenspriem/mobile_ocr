@@ -19,7 +19,7 @@ class TextClassifier(
     }
 
     fun classifyAndRotate(images: List<Bitmap>): List<Bitmap> {
-        return OcrPerformanceLogger.trace("TextClassifier#classifyAndRotate(count=${images.size})") {
+        return OcrPerformanceLogger.trace("TextClassifier#classifyAndRotate") {
             val results = mutableListOf<Bitmap>()
 
             for (i in images.indices step BATCH_SIZE) {
@@ -40,43 +40,30 @@ class TextClassifier(
                 }
             }
 
-            OcrPerformanceLogger.log("TextClassifier: processed ${images.size} crops")
             results
         }
     }
 
     private fun classifyBatch(batchImages: List<Bitmap>): List<Boolean> {
         if (batchImages.isEmpty()) return emptyList()
+        val batchSize = batchImages.size
+        val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * IMG_WIDTH)
 
-        return OcrPerformanceLogger.trace("TextClassifier#classifyBatch(size=${batchImages.size})") {
-            val batchSize = batchImages.size
-            val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * IMG_WIDTH)
+        for ((index, image) in batchImages.withIndex()) {
+            preprocessImage(image, inputArray, index)
+        }
 
-            OcrPerformanceLogger.trace("TextClassifier#prepareBatch(size=$batchSize)") {
-                for ((index, image) in batchImages.withIndex()) {
-                    preprocessImage(image, inputArray, index)
-                }
-            }
+        val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), IMG_WIDTH.toLong())
+        val inputTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(inputArray), shape)
 
-            val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), IMG_WIDTH.toLong())
-            val inputTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(inputArray), shape)
-
-            var output: OnnxTensor? = null
-            try {
-                output = OcrPerformanceLogger.trace("TextClassifier#runModel(size=$batchSize)") {
-                    val inputs = mapOf(session.inputNames.first() to inputTensor)
-                    session.run(inputs)[0] as OnnxTensor
-                }
-
-                val results = OcrPerformanceLogger.trace("TextClassifier#decodeOutput(size=$batchSize)") {
-                    decodeOutput(output, batchSize)
-                }
-
-                results
-            } finally {
-                output?.close()
-                inputTensor.close()
-            }
+        var output: OnnxTensor? = null
+        return try {
+            val inputs = mapOf(session.inputNames.first() to inputTensor)
+            output = session.run(inputs)[0] as OnnxTensor
+            decodeOutput(output, batchSize)
+        } finally {
+            output?.close()
+            inputTensor.close()
         }
     }
 

@@ -17,15 +17,6 @@ object OcrPerformanceLogger {
         }
     }
 
-    fun logStage(section: String, durationNanos: Long) {
-        val durationMs = durationNanos / 1_000_000.0
-        Log.i(TAG, "$section took ${formatDuration(durationMs)}")
-    }
-
-    fun log(message: String) {
-        Log.i(TAG, message)
-    }
-
     private fun formatDuration(durationMs: Double): String {
         return String.format(Locale.US, "%.2f ms", durationMs)
     }

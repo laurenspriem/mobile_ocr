@@ -18,7 +18,6 @@ class TextRecognizer(
 
     fun recognize(images: List<Bitmap>): List<Pair<String, Float>> {
         if (images.isEmpty()) {
-            OcrPerformanceLogger.log("TextRecognizer: no crops to process")
             return emptyList()
         }
 
@@ -38,7 +37,6 @@ class TextRecognizer(
                 }
             }
 
-            OcrPerformanceLogger.log("TextRecognizer: completed recognition for ${images.size} crops")
             orderedResults
         }
     }
@@ -46,46 +44,34 @@ class TextRecognizer(
     private fun processBatch(batchImages: List<Bitmap>): List<Pair<String, Float>> {
         if (batchImages.isEmpty()) return emptyList()
 
-        return OcrPerformanceLogger.trace("TextRecognizer#processBatch(size=${batchImages.size})") {
-            var maxWhRatio = IMG_WIDTH.toFloat() / IMG_HEIGHT
-            for (image in batchImages) {
-                val ratio = image.width.toFloat() / image.height
-                if (ratio > maxWhRatio) {
-                    maxWhRatio = ratio
-                }
+        var maxWhRatio = IMG_WIDTH.toFloat() / IMG_HEIGHT
+        for (image in batchImages) {
+            val ratio = image.width.toFloat() / image.height
+            if (ratio > maxWhRatio) {
+                maxWhRatio = ratio
             }
+        }
 
-            val targetWidth = ceil(IMG_HEIGHT * maxWhRatio).toInt().coerceAtLeast(1)
+        val targetWidth = ceil(IMG_HEIGHT * maxWhRatio).toInt().coerceAtLeast(1)
 
-            val batchSize = batchImages.size
-            val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * targetWidth)
+        val batchSize = batchImages.size
+        val inputArray = FloatArray(batchSize * 3 * IMG_HEIGHT * targetWidth)
 
-            OcrPerformanceLogger.trace("TextRecognizer#prepareBatch(size=$batchSize,width=$targetWidth)") {
-                for ((index, image) in batchImages.withIndex()) {
-                    preprocessImage(image, inputArray, index, targetWidth)
-                }
-            }
+        for ((index, image) in batchImages.withIndex()) {
+            preprocessImage(image, inputArray, index, targetWidth)
+        }
 
-            val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), targetWidth.toLong())
-            val inputTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(inputArray), shape)
+        val shape = longArrayOf(batchSize.toLong(), 3, IMG_HEIGHT.toLong(), targetWidth.toLong())
+        val inputTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(inputArray), shape)
 
-            var output: OnnxTensor? = null
-            try {
-                output = OcrPerformanceLogger.trace("TextRecognizer#runModel(size=$batchSize)") {
-                    val inputs = mapOf(session.inputNames.first() to inputTensor)
-                    session.run(inputs)[0] as OnnxTensor
-                }
-
-                val results = OcrPerformanceLogger.trace("TextRecognizer#decodeOutput(size=$batchSize)") {
-                    decodeOutput(output, batchSize)
-                }
-
-                OcrPerformanceLogger.log("TextRecognizer: batch size=$batchSize targetWidth=$targetWidth")
-                results
-            } finally {
-                output?.close()
-                inputTensor.close()
-            }
+        var output: OnnxTensor? = null
+        return try {
+            val inputs = mapOf(session.inputNames.first() to inputTensor)
+            output = session.run(inputs)[0] as OnnxTensor
+            decodeOutput(output, batchSize)
+        } finally {
+            output?.close()
+            inputTensor.close()
         }
     }
 

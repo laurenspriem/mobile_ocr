@@ -95,16 +95,11 @@ class OcrProcessor(
 
     fun processImage(bitmap: Bitmap, includeAllConfidenceScores: Boolean = false): OcrResult {
         return OcrPerformanceLogger.trace("OcrProcessor#processImage") {
-            val detectionResult = OcrPerformanceLogger.trace("OcrProcessor#detectText") {
-                detectText(bitmap)
-            }
+            val detectionResult = detectText(bitmap)
 
             if (detectionResult.isEmpty()) {
-                OcrPerformanceLogger.log("OcrProcessor: no detections found")
                 return@trace OcrResult(emptyList(), emptyList(), emptyList())
             }
-
-            OcrPerformanceLogger.log("OcrProcessor: detected ${detectionResult.size} regions")
 
             val croppedImages = OcrPerformanceLogger.trace("OcrProcessor#cropTextRegions") {
                 detectionResult.mapIndexed { index, box ->
@@ -117,33 +112,25 @@ class OcrProcessor(
             val classificationMask = BooleanArray(croppedImages.size)
 
             if (useAngleClassification) {
-                val aspectCandidates = OcrPerformanceLogger.trace("OcrProcessor#selectAspectCandidates") {
-                    croppedImages.mapIndexedNotNull { index, image ->
-                        val aspectRatio = image.width.toFloat() / image.height
-                        if (aspectRatio < ANGLE_ASPECT_RATIO_THRESHOLD) index else null
-                    }
+                val aspectCandidates = croppedImages.mapIndexedNotNull { index, image ->
+                    val aspectRatio = image.width.toFloat() / image.height
+                    if (aspectRatio < ANGLE_ASPECT_RATIO_THRESHOLD) index else null
                 }
                 if (aspectCandidates.isNotEmpty()) {
                     classifyAndRotateIndices(croppedImages, aspectCandidates, classificationMask, "angle_aspect")
                 }
             }
 
-            val recognitionResults = OcrPerformanceLogger.trace("OcrProcessor#recognizeText") {
-                recognizeText(croppedImages).toMutableList()
-            }
+            val recognitionResults = recognizeText(croppedImages).toMutableList()
 
             if (useAngleClassification && recognitionResults.isNotEmpty()) {
-                val lowConfidenceIndices = OcrPerformanceLogger.trace("OcrProcessor#selectLowConfidence") {
-                    recognitionResults.mapIndexedNotNull { index, result ->
-                        if (!classificationMask[index] && result.second < LOW_CONFIDENCE_THRESHOLD) index else null
-                    }
+                val lowConfidenceIndices = recognitionResults.mapIndexedNotNull { index, result ->
+                    if (!classificationMask[index] && result.second < LOW_CONFIDENCE_THRESHOLD) index else null
                 }
 
                 if (lowConfidenceIndices.isNotEmpty()) {
                     classifyAndRotateIndices(croppedImages, lowConfidenceIndices, classificationMask, "angle_confidence")
-                    val refreshed = OcrPerformanceLogger.trace("OcrProcessor#reRecognizeLowConfidence") {
-                        recognizeText(lowConfidenceIndices.map { croppedImages[it] })
-                    }
+                    val refreshed = recognizeText(lowConfidenceIndices.map { croppedImages[it] })
                     lowConfidenceIndices.forEachIndexed { refreshedIndex, originalIndex ->
                         val current = recognitionResults[originalIndex]
                         val updated = refreshed[refreshedIndex]
@@ -173,8 +160,6 @@ class OcrProcessor(
                 }
             }
 
-            OcrPerformanceLogger.log("OcrProcessor: returning ${filteredResults.size} results after filtering")
-
             OcrResult(filteredResults, filteredTexts, filteredScores)
         }
     }
@@ -202,7 +187,7 @@ class OcrProcessor(
         val session = classificationSession
             ?: throw IllegalStateException("Angle classification requested but model not loaded")
 
-        OcrPerformanceLogger.trace("OcrProcessor#classifyAndRotate(stage=$stageLabel)") {
+        OcrPerformanceLogger.trace("OcrProcessor#classifyAndRotate") {
             val classifier = TextClassifier(session, ortEnv)
             val subset = indices.map { images[it] }
             val rotated = classifier.classifyAndRotate(subset)

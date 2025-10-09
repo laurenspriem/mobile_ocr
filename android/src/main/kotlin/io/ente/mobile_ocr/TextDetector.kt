@@ -26,29 +26,20 @@ class TextDetector(
             val originalWidth = bitmap.width
             val originalHeight = bitmap.height
 
-            val (inputTensor, resizedWidth, resizedHeight) = OcrPerformanceLogger.trace("TextDetector#preprocessImage") {
-                preprocessImage(bitmap)
-            }
+            val (inputTensor, resizedWidth, resizedHeight) = preprocessImage(bitmap)
 
             var output: OnnxTensor? = null
             try {
-                output = OcrPerformanceLogger.trace("TextDetector#runModel") {
-                    val inputs = mapOf("x" to inputTensor)
-                    session.run(inputs)[0] as OnnxTensor
-                }
+                val inputs = mapOf("x" to inputTensor)
+                output = session.run(inputs)[0] as OnnxTensor
 
-                val boxes = OcrPerformanceLogger.trace("TextDetector#postprocessDetection") {
-                    postprocessDetection(
-                        output,
-                        originalWidth,
-                        originalHeight,
-                        resizedWidth,
-                        resizedHeight
-                    )
-                }
-
-                OcrPerformanceLogger.log("TextDetector: produced ${boxes.size} boxes")
-                boxes
+                postprocessDetection(
+                    output,
+                    originalWidth,
+                    originalHeight,
+                    resizedWidth,
+                    resizedHeight
+                )
             } finally {
                 output?.close()
                 inputTensor.close()
