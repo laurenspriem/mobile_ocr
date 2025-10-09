@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -16,6 +17,10 @@ import kotlinx.coroutines.sync.withLock
 
 /** MobileOcrPlugin */
 class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
+  companion object {
+    private const val TAG = "MobileOcrPlugin"
+  }
+
   private lateinit var channel : MethodChannel
   private lateinit var context: Context
   private var ocrProcessor: OcrProcessor? = null
@@ -53,7 +58,8 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
               )
             )
           } catch (e: Exception) {
-            result.error("MODEL_PREP_ERROR", "Failed to prepare models: ${e.message}", null)
+            Log.e(TAG, "Model preparation failed", e)
+            result.error("MODEL_PREP_ERROR", e.message ?: "Could not prepare models", null)
           }
         }
       }
@@ -73,7 +79,8 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
             }
             result.success(ocrResult)
           } catch (e: Exception) {
-            result.error("OCR_ERROR", "Failed to process image: ${e.message}", null)
+            Log.e(TAG, "OCR processing failed for $imagePath", e)
+            result.error("OCR_ERROR", e.message ?: "Could not process image", null)
           }
         }
       }
