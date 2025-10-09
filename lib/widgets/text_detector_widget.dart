@@ -31,6 +31,9 @@ class TextDetectorWidget extends StatefulWidget {
   /// Whether to show boundaries for unselected text
   final bool showUnselectedBoundaries;
 
+  /// Whether to show the inline selection preview banner.
+  final bool enableSelectionPreview;
+
   /// Enable debug utilities like the detected-text dialog.
   final bool debugMode;
 
@@ -43,6 +46,7 @@ class TextDetectorWidget extends StatefulWidget {
     this.loadingWidget,
     this.backgroundColor = Colors.black,
     this.showUnselectedBoundaries = true,
+    this.enableSelectionPreview = false,
     this.debugMode = false,
   });
 
@@ -333,6 +337,7 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
         onTextCopied: widget.onTextCopied,
         onSelectionStart: _dismissEditorHint,
         showUnselectedBoundaries: widget.showUnselectedBoundaries,
+        enableSelectionPreview: widget.enableSelectionPreview,
         debugMode: widget.debugMode,
       );
     }

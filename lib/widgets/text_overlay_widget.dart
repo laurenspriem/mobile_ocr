@@ -16,6 +16,7 @@ class TextOverlayWidget extends StatefulWidget {
   final Function(String)? onTextCopied;
   final VoidCallback? onSelectionStart;
   final bool showUnselectedBoundaries;
+  final bool enableSelectionPreview;
   final bool debugMode;
 
   const TextOverlayWidget({
@@ -26,6 +27,7 @@ class TextOverlayWidget extends StatefulWidget {
     this.onTextCopied,
     this.onSelectionStart,
     this.showUnselectedBoundaries = true,
+    this.enableSelectionPreview = false,
     this.debugMode = false,
   });
 
@@ -35,6 +37,7 @@ class TextOverlayWidget extends StatefulWidget {
 
 class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   static const double _epsilon = 1e-6;
+  static const double _characterHitPadding = 3.0;
 
   final GlobalKey _toolbarKey = GlobalKey();
   final TransformationController _transformController =
@@ -83,6 +86,23 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
           _computeBlockVisuals();
         });
       });
+    }
+
+    if (!oldWidget.enableSelectionPreview && widget.enableSelectionPreview) {
+      if (_activeSelections.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _updateSelectionPreview();
+          });
+        });
+      }
+    } else if (oldWidget.enableSelectionPreview && !widget.enableSelectionPreview) {
+      if (_selectedTextPreview.isNotEmpty) {
+        setState(() {
+          _selectedTextPreview = '';
+        });
+      }
     }
   }
 
@@ -133,7 +153,8 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       fit: StackFit.expand,
       children: [
         _buildInteractiveImage(),
-        if (_selectedTextPreview.isNotEmpty) _buildSelectionPreview(),
+        if (widget.enableSelectionPreview && _selectedTextPreview.isNotEmpty)
+          _buildSelectionPreview(),
         if (widget.textBlocks.isNotEmpty) _buildSelectionToolbar(),
       ],
     );
@@ -585,7 +606,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       _baseAnchor = anchor;
       _extentAnchor = anchor;
       _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _selectedTextPreview = _selectionPreviewText();
+      _updateSelectionPreview();
     });
     if (_activeSelections.isNotEmpty) {
       HapticFeedback.selectionClick();
@@ -608,7 +629,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     setState(() {
       _extentAnchor = anchor;
       _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _selectedTextPreview = _selectionPreviewText();
+      _updateSelectionPreview();
     });
   }
 
@@ -646,7 +667,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       _baseAnchor = anchor;
       _extentAnchor = anchor;
       _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _selectedTextPreview = _selectionPreviewText();
+      _updateSelectionPreview();
     });
     HapticFeedback.mediumImpact();
   }
@@ -668,19 +689,33 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       );
     }
 
+    final localPoint = globalPoint - bounds.topLeft;
+
     for (int i = 0; i < visual.characters.length; i++) {
       final character = visual.characters[i];
-      if (_pointInPolygon(character.polygon, globalPoint)) {
+      final rect = character.bounds;
+      if (!rect.isEmpty) {
+        final paddedRect = rect.inflate(_characterHitPadding);
+        if (paddedRect.contains(localPoint)) {
+          return _SelectionAnchor(blockIndex, TextPosition(offset: i));
+        }
+      }
+      if (character.polygon.length >= 3 &&
+          _pointInPolygon(character.polygon, localPoint)) {
         return _SelectionAnchor(blockIndex, TextPosition(offset: i));
       }
     }
 
-    int bestIndex = 0;
+    int? bestIndex;
     double bestDistance = double.infinity;
     for (int i = 0; i < visual.characters.length; i++) {
       final rect = visual.characters[i].bounds;
-      final dx = _distanceToRange(globalPoint.dx, rect.left, rect.right);
-      final dy = _distanceToRange(globalPoint.dy, rect.top, rect.bottom);
+      if (rect.isEmpty) {
+        continue;
+      }
+      final paddedRect = rect.inflate(_characterHitPadding);
+      final dx = _distanceToRange(localPoint.dx, paddedRect.left, paddedRect.right);
+      final dy = _distanceToRange(localPoint.dy, paddedRect.top, paddedRect.bottom);
       final distance = sqrt(dx * dx + dy * dy);
       if (distance < bestDistance) {
         bestDistance = distance;
@@ -688,7 +723,8 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       }
     }
 
-    return _SelectionAnchor(blockIndex, TextPosition(offset: bestIndex));
+    final fallbackIndex = bestIndex ?? 0;
+    return _SelectionAnchor(blockIndex, TextPosition(offset: fallbackIndex));
   }
 
   int? _hitTestBlock(Offset point) {
@@ -777,7 +813,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     _blockOrder.sort(_compareBlockIndices);
     _clampAnchorsToVisuals();
     _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-    _selectedTextPreview = _selectionPreviewText();
+    _updateSelectionPreview();
   }
 
   List<_CharacterVisual> _buildCharacterVisuals(
@@ -1119,7 +1155,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         TextPosition(offset: lastVisual.characterCount),
       );
       _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _selectedTextPreview = _selectionPreviewText();
+      _updateSelectionPreview();
     });
     _notifySelection();
     HapticFeedback.selectionClick();
@@ -1191,6 +1227,16 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       return raw;
     }
     return '${raw.substring(0, maxLength - 1).trimRight()}…';
+  }
+
+  void _updateSelectionPreview() {
+    if (!widget.enableSelectionPreview) {
+      if (_selectedTextPreview.isNotEmpty) {
+        _selectedTextPreview = '';
+      }
+      return;
+    }
+    _selectedTextPreview = _selectionPreviewText();
   }
 
   void _notifySelection() {

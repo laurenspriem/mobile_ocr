@@ -61,6 +61,7 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                     key: ValueKey(_imagePath),
                     imagePath: _imagePath!,
                     debugMode: true,
+                    enableSelectionPreview: true,
                     onTextCopied: (text) => _showSnackBar(
                       context,
                       text.isEmpty
