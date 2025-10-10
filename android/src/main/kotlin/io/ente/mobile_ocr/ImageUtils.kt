@@ -38,29 +38,17 @@ object ImageUtils {
         )
 
         // Calculate perspective transform matrix
-        val matrix = Matrix()
-        matrix.setPolyToPoly(srcPoints, 0, dstPoints, 0, 4)
-
-        val inverse = Matrix()
-        if (!matrix.invert(inverse)) {
-            throw IllegalStateException("Failed to invert perspective transform matrix")
+        val matrix = Matrix().apply {
+            setPolyToPoly(srcPoints, 0, dstPoints, 0, 4)
         }
 
         val croppedBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val pixels = IntArray(width * height)
-        val mappedPoint = FloatArray(2)
-
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                mappedPoint[0] = x + 0.5f
-                mappedPoint[1] = y + 0.5f
-                inverse.mapPoints(mappedPoint)
-
-                pixels[y * width + x] = sampleBicubic(bitmap, mappedPoint[0], mappedPoint[1])
-            }
+        val canvas = Canvas(croppedBitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            isFilterBitmap = true
         }
 
-        croppedBitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+        canvas.drawBitmap(bitmap, matrix, paint)
 
         // Check if the image needs rotation based on aspect ratio
         if (height.toFloat() / width >= 1.5f) {
@@ -184,67 +172,4 @@ object ImageUtils {
     }
 }
 
-private fun sampleBicubic(bitmap: Bitmap, x: Float, y: Float): Int {
-    val width = bitmap.width
-    val height = bitmap.height
 
-    val clampedX = x.coerceIn(0f, width - 1f)
-    val clampedY = y.coerceIn(0f, height - 1f)
-
-    val xBase = floor(clampedX).toInt()
-    val yBase = floor(clampedY).toInt()
-    val tx = clampedX - xBase
-    val ty = clampedY - yBase
-
-    val intermediate = Array(4) { FloatArray(4) }
-
-    for (row in -1..2) {
-        val sampleY = (yBase + row).coerceIn(0, height - 1)
-        val rowIndex = row + 1
-        val channelSamples = Array(4) { FloatArray(4) }
-        for (col in -1..2) {
-            val sampleX = (xBase + col).coerceIn(0, width - 1)
-            val pixel = bitmap.getPixel(sampleX, sampleY)
-            val columnIndex = col + 1
-            channelSamples[0][columnIndex] = (pixel and 0xFF).toFloat()
-            channelSamples[1][columnIndex] = ((pixel shr 8) and 0xFF).toFloat()
-            channelSamples[2][columnIndex] = ((pixel shr 16) and 0xFF).toFloat()
-            channelSamples[3][columnIndex] = (pixel ushr 24).toFloat()
-        }
-        for (channel in 0 until 4) {
-            intermediate[channel][rowIndex] = cubicHermite(
-                channelSamples[channel][0],
-                channelSamples[channel][1],
-                channelSamples[channel][2],
-                channelSamples[channel][3],
-                tx
-            )
-        }
-    }
-
-    val resultChannels = FloatArray(4)
-    for (channel in 0 until 4) {
-        resultChannels[channel] = cubicHermite(
-            intermediate[channel][0],
-            intermediate[channel][1],
-            intermediate[channel][2],
-            intermediate[channel][3],
-            ty
-        ).coerceIn(0f, 255f)
-    }
-
-    val b = resultChannels[0].roundToInt()
-    val g = resultChannels[1].roundToInt()
-    val r = resultChannels[2].roundToInt()
-    val a = resultChannels[3].roundToInt()
-
-    return (a shl 24) or (r shl 16) or (g shl 8) or b
-}
-
-private fun cubicHermite(p0: Float, p1: Float, p2: Float, p3: Float, t: Float): Float {
-    val a = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3
-    val b = p0 - 2.5f * p1 + 2f * p2 - 0.5f * p3
-    val c = -0.5f * p0 + 0.5f * p2
-    val d = p1
-    return ((a * t + b) * t + c) * t + d
-}
