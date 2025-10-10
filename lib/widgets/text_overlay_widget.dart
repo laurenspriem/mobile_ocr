@@ -44,16 +44,16 @@ class TextOverlayWidget extends StatefulWidget {
 class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   static const double _epsilon = 1e-6;
   static const double _characterHitPadding = 3.0;
-  static const double _handleCircleDiameter = 14.0;
-  static const double _handleStemHeight = 22.0;
-  static const double _handleStemWidth = 2.0;
+  static const double _handleHeadDiameter = 20.0;
+  static const double _handlePointerHeight = 12.0;
+  static const double _handlePointerWidth = 16.0;
   static const double _handleHitboxExtent = 44.0;
   static const double _copyButtonWidth = 104.0;
   static const double _copyButtonHeight = 34.0;
   static const double _copyButtonSpacing = 12.0;
   static const double _copyPointerHeight = _kCopyPointerHeight;
-  static const Color _handleFillColor = Color(0xFFF5F7FB);
-  static const Color _handleStrokeColor = Color(0xFF4C6EF5);
+  static const Color _handleFillColor = Color(0xFF2563EB);
+  static const Color _handleStrokeColor = Color(0xFF2563EB);
   static final RegExp _wordCharacterPattern = RegExp(
     r'[\p{L}\p{N}]',
     unicode: true,
@@ -506,8 +506,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       );
       if (top < minTop) {
         anchorAbove = false;
-        anchorY =
-            selectionBounds.bottom + spacing + (_handleCircleDiameter / 2);
+        anchorY = selectionBounds.bottom + spacing + (_handleHeadDiameter / 2);
         top = anchorY;
       }
       top = top.clamp(minTop, maxTop);
@@ -558,9 +557,9 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
             fillColor: _handleFillColor,
             borderColor: _handleStrokeColor,
             isStart: isStart,
-            circleDiameter: _handleCircleDiameter,
-            stemHeight: _handleStemHeight,
-            stemWidth: _handleStemWidth,
+            headDiameter: _handleHeadDiameter,
+            pointerHeight: _handlePointerHeight,
+            pointerWidth: _handlePointerWidth,
           ),
         ),
       ),
@@ -1954,61 +1953,138 @@ class _SelectionHandleVisual extends StatelessWidget {
     required this.fillColor,
     required this.borderColor,
     required this.isStart,
-    required this.circleDiameter,
-    required this.stemHeight,
-    required this.stemWidth,
+    required this.headDiameter,
+    required this.pointerHeight,
+    required this.pointerWidth,
   });
 
   final Color fillColor;
   final Color borderColor;
   final bool isStart;
-  final double circleDiameter;
-  final double stemHeight;
-  final double stemWidth;
+  final double headDiameter;
+  final double pointerHeight;
+  final double pointerWidth;
 
   @override
   Widget build(BuildContext context) {
-    final Widget circle = Container(
-      width: circleDiameter,
-      height: circleDiameter,
-      decoration: BoxDecoration(
-        color: fillColor,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: borderColor.withValues(alpha: 0.7),
-          width: 1.3,
-        ),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1)),
-        ],
-      ),
-    );
-
-    final Widget stem = SizedBox(
-      height: stemHeight,
-      child: Align(
-        alignment: Alignment.center,
-        child: Container(
-          width: stemWidth,
-          height: stemHeight,
-          decoration: BoxDecoration(
-            color: borderColor,
-            borderRadius: BorderRadius.circular(stemWidth),
-          ),
-        ),
-      ),
-    );
-
-    final List<Widget> children = isStart
-        ? <Widget>[circle, stem]
-        : <Widget>[stem, circle];
-
-    final double visualWidth = max(circleDiameter, stemWidth * 2);
+    final double visualWidth = max(headDiameter, pointerWidth);
+    final double visualHeight = headDiameter + pointerHeight;
 
     return SizedBox(
       width: visualWidth,
-      child: Column(mainAxisSize: MainAxisSize.min, children: children),
+      height: visualHeight,
+      child: CustomPaint(
+        painter: _SelectionHandlePainter(
+          fillColor: fillColor,
+          borderColor: borderColor,
+          isStart: isStart,
+          headDiameter: headDiameter,
+          pointerHeight: pointerHeight,
+          pointerWidth: pointerWidth,
+        ),
+      ),
     );
+  }
+}
+
+class _SelectionHandlePainter extends CustomPainter {
+  const _SelectionHandlePainter({
+    required this.fillColor,
+    required this.borderColor,
+    required this.isStart,
+    required this.headDiameter,
+    required this.pointerHeight,
+    required this.pointerWidth,
+  });
+
+  final Color fillColor;
+  final Color borderColor;
+  final bool isStart;
+  final double headDiameter;
+  final double pointerHeight;
+  final double pointerWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double radius = headDiameter / 2;
+    final double usableRadius = radius <= 0.1 ? 0.1 : radius;
+    final double extent = pointerHeight < 0 ? 0 : pointerHeight;
+
+    double pointerHalfWidth = pointerWidth <= 0
+        ? usableRadius * 0.6
+        : pointerWidth / 2;
+    final double minHalfWidth = usableRadius * 0.5;
+    final double maxHalfWidth = usableRadius * 0.95;
+    pointerHalfWidth = pointerHalfWidth.clamp(minHalfWidth, maxHalfWidth);
+
+    final double angleOffset = pointerHalfWidth >= usableRadius
+        ? pi / 2 - 0.01
+        : asin(pointerHalfWidth / usableRadius);
+
+    final double centerY = isStart ? usableRadius : size.height - usableRadius;
+    final Offset circleCenter = Offset(size.width / 2, centerY);
+
+    final double baseAngle = isStart ? pi / 2 : 3 * pi / 2;
+    final Offset baseA = Offset(
+      circleCenter.dx + usableRadius * cos(baseAngle - angleOffset),
+      circleCenter.dy + usableRadius * sin(baseAngle - angleOffset),
+    );
+    final Offset baseB = Offset(
+      circleCenter.dx + usableRadius * cos(baseAngle + angleOffset),
+      circleCenter.dy + usableRadius * sin(baseAngle + angleOffset),
+    );
+
+    final List<Offset> basePoints = <Offset>[baseA, baseB]
+      ..sort((a, b) => a.dx.compareTo(b.dx));
+    final Offset leftBase = basePoints.first;
+    final Offset rightBase = basePoints.last;
+
+    final Offset pointerTip = isStart
+        ? Offset(circleCenter.dx, circleCenter.dy + usableRadius + extent)
+        : Offset(circleCenter.dx, circleCenter.dy - usableRadius - extent);
+
+    final Path circlePath = Path()
+      ..addOval(Rect.fromCircle(center: circleCenter, radius: usableRadius));
+    final double pointerDirection = isStart ? 1.0 : -1.0;
+    final double controlYOffset = usableRadius + extent * 0.45;
+    final Offset controlPoint = Offset(
+      circleCenter.dx,
+      circleCenter.dy + pointerDirection * controlYOffset,
+    );
+
+    final Path pointerPath = Path()
+      ..moveTo(leftBase.dx, leftBase.dy)
+      ..quadraticBezierTo(
+        controlPoint.dx,
+        controlPoint.dy,
+        pointerTip.dx,
+        pointerTip.dy,
+      )
+      ..quadraticBezierTo(
+        controlPoint.dx,
+        controlPoint.dy,
+        rightBase.dx,
+        rightBase.dy,
+      )
+      ..close();
+    final Path handlePath = Path.combine(
+      PathOperation.union,
+      circlePath,
+      pointerPath,
+    );
+
+    final Paint fillPaint = Paint()..color = fillColor;
+    canvas.drawPath(handlePath, fillPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SelectionHandlePainter oldDelegate) {
+    return oldDelegate.fillColor != fillColor ||
+        oldDelegate.borderColor != borderColor ||
+        oldDelegate.isStart != isStart ||
+        oldDelegate.headDiameter != headDiameter ||
+        oldDelegate.pointerHeight != pointerHeight ||
+        oldDelegate.pointerWidth != pointerWidth;
   }
 }
 
