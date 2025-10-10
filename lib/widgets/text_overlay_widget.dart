@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
@@ -1322,7 +1323,13 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       final localPolygon = scaledPoints
           .map((point) => point - origin)
           .toList(growable: false);
-      final characters = _buildCharacterVisuals(block, scaledPoints, bounds);
+      final geometry = _OrientedGeometry.fromPolygon(localPolygon);
+      final characters = _buildCharacterVisuals(
+        block,
+        scaledPoints,
+        bounds,
+        geometry,
+      );
       if (characters.isEmpty) {
         continue;
       }
@@ -1334,6 +1341,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         localPolygon: localPolygon,
         bounds: bounds,
         characters: characters,
+        geometry: geometry,
       );
       _blockOrder.add(index);
     }
@@ -1346,6 +1354,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     TextBlock block,
     List<Offset> scaledBlockPolygon,
     Rect blockBounds,
+    _OrientedGeometry geometry,
   ) {
     final origin = blockBounds.topLeft;
 
@@ -1363,12 +1372,16 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
           continue;
         }
         final rect = _rectFromPoints(localPolygon);
+        final _OrientedBounds? orientedBounds = geometry.isValid
+            ? _orientedBoundsForPolygon(geometry, localPolygon)
+            : null;
         visuals.add(
           _CharacterVisual(
             text: character.text,
             confidence: character.confidence,
             polygon: localPolygon,
             bounds: rect,
+            orientedBounds: orientedBounds,
           ),
         );
       }
@@ -1377,13 +1390,19 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       }
     }
 
-    return _buildFallbackCharacters(block, scaledBlockPolygon, blockBounds);
+    return _buildFallbackCharacters(
+      block,
+      scaledBlockPolygon,
+      blockBounds,
+      geometry,
+    );
   }
 
   List<_CharacterVisual> _buildFallbackCharacters(
     TextBlock block,
     List<Offset> scaledBlockPolygon,
     Rect blockBounds,
+    _OrientedGeometry geometry,
   ) {
     final origin = blockBounds.topLeft;
 
@@ -1393,12 +1412,16 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
             .map((point) => point - origin)
             .toList(growable: false);
         final rect = _rectFromPoints(localPolygon);
+        final _OrientedBounds? orientedBounds = geometry.isValid
+            ? _orientedBoundsForPolygon(geometry, localPolygon)
+            : null;
         return [
           _CharacterVisual(
             text: block.text,
             confidence: block.confidence,
             polygon: localPolygon,
             bounds: rect,
+            orientedBounds: orientedBounds,
           ),
         ];
       }
@@ -1415,12 +1438,16 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
           .map((point) => point - origin)
           .toList(growable: false);
       final rect = _rectFromPoints(localPolygon);
+      final _OrientedBounds? orientedBounds = geometry.isValid
+          ? _orientedBoundsForPolygon(geometry, localPolygon)
+          : null;
       return [
         _CharacterVisual(
           text: '',
           confidence: block.confidence,
           polygon: localPolygon,
           bounds: rect,
+          orientedBounds: orientedBounds,
         ),
       ];
     }
@@ -1446,17 +1473,69 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
           .map((point) => point - origin)
           .toList(growable: false);
       final rect = _rectFromPoints(localPolygon);
+      final _OrientedBounds? orientedBounds = geometry.isValid
+          ? _orientedBoundsForPolygon(geometry, localPolygon)
+          : null;
       characters.add(
         _CharacterVisual(
           text: text[i],
           confidence: block.confidence,
           polygon: localPolygon,
           bounds: rect,
+          orientedBounds: orientedBounds,
         ),
       );
     }
 
     return characters;
+  }
+
+  _OrientedBounds? _orientedBoundsForPolygon(
+    _OrientedGeometry geometry,
+    List<Offset> polygon,
+  ) {
+    if (!geometry.isValid || polygon.isEmpty) {
+      return null;
+    }
+
+    double minU = double.infinity;
+    double maxU = -double.infinity;
+    double minV = double.infinity;
+    double maxV = -double.infinity;
+
+    for (final point in polygon) {
+      final Offset aligned = geometry.toAligned(point);
+      if (!aligned.dx.isFinite || !aligned.dy.isFinite) {
+        continue;
+      }
+      if (aligned.dx < minU) minU = aligned.dx;
+      if (aligned.dx > maxU) maxU = aligned.dx;
+      if (aligned.dy < minV) minV = aligned.dy;
+      if (aligned.dy > maxV) maxV = aligned.dy;
+    }
+
+    if (!minU.isFinite || !maxU.isFinite || !minV.isFinite || !maxV.isFinite) {
+      return null;
+    }
+
+    if (maxU - minU < _kGeometryEpsilon) {
+      final double mid = (maxU + minU) / 2;
+      minU = mid - _kGeometryEpsilon;
+      maxU = mid + _kGeometryEpsilon;
+    }
+
+    if (maxV - minV < _kGeometryEpsilon) {
+      final double mid = (maxV + minV) / 2;
+      minV = mid - _kGeometryEpsilon;
+      maxV = mid + _kGeometryEpsilon;
+    }
+
+    return _OrientedBounds(
+      minU: minU,
+      maxU: maxU,
+      minV: minV,
+      maxV: maxV,
+    );
   }
 
   List<Offset> _getScaledCharacterPoints(CharacterBox character) {
@@ -1877,18 +1956,152 @@ enum _HandleType { base, extent }
 
 enum _GlyphCategory { whitespace, word, symbol }
 
+const double _kGeometryEpsilon = 1e-6;
+
+class _OrientedBounds {
+  const _OrientedBounds({
+    required this.minU,
+    required this.maxU,
+    required this.minV,
+    required this.maxV,
+  });
+
+  final double minU;
+  final double maxU;
+  final double minV;
+  final double maxV;
+
+  Rect toRect() => Rect.fromLTRB(minU, minV, maxU, maxV);
+
+  Rect inflate(double horizontal, double vertical) => Rect.fromLTRB(
+        minU - horizontal,
+        minV - vertical,
+        maxU + horizontal,
+        maxV + vertical,
+      );
+}
+
+class _OrientedGeometry {
+  _OrientedGeometry._({
+    required this.axisX,
+    required this.axisY,
+    required this.translation,
+    required this.forwardMatrix,
+    required this.isValid,
+  });
+
+  final Offset axisX;
+  final Offset axisY;
+  final Offset translation;
+  final Float64List forwardMatrix;
+  final bool isValid;
+
+  factory _OrientedGeometry.identity() {
+    final identityMatrix = Float64List(16);
+    identityMatrix[0] = 1.0;
+    identityMatrix[5] = 1.0;
+    identityMatrix[10] = 1.0;
+    identityMatrix[15] = 1.0;
+    return _OrientedGeometry._(
+      axisX: const Offset(1, 0),
+      axisY: const Offset(0, 1),
+      translation: Offset.zero,
+      forwardMatrix: identityMatrix,
+      isValid: false,
+    );
+  }
+
+  factory _OrientedGeometry.fromPolygon(List<Offset> polygon) {
+    if (polygon.length < 2) {
+      return _OrientedGeometry.identity();
+    }
+
+    Offset axisX = const Offset(1, 0);
+    Offset basePoint = polygon.first;
+    double longestEdgeLengthSquared = 0;
+
+    for (int i = 0; i < polygon.length; i++) {
+      final Offset current = polygon[i];
+      final Offset next = polygon[(i + 1) % polygon.length];
+      final Offset edge = next - current;
+      final double lengthSquared = edge.dx * edge.dx + edge.dy * edge.dy;
+      if (lengthSquared > longestEdgeLengthSquared) {
+        final double length = sqrt(lengthSquared);
+        if (length > _kGeometryEpsilon) {
+          axisX = edge / length;
+          basePoint = current;
+          longestEdgeLengthSquared = lengthSquared;
+        }
+      }
+    }
+
+    if (longestEdgeLengthSquared <= _kGeometryEpsilon) {
+      return _OrientedGeometry.identity();
+    }
+
+    Offset axisY = Offset(-axisX.dy, axisX.dx);
+    final Offset centroid = polygon.reduce((a, b) => a + b) /
+        polygon.length.toDouble();
+    final Offset toCentroid = centroid - basePoint;
+    if (toCentroid.dx * axisY.dx + toCentroid.dy * axisY.dy < 0) {
+      axisY = Offset(-axisY.dx, -axisY.dy);
+    }
+
+    double minU = double.infinity;
+    double minV = double.infinity;
+    for (final point in polygon) {
+      final double u = point.dx * axisX.dx + point.dy * axisX.dy;
+      final double v = point.dx * axisY.dx + point.dy * axisY.dy;
+      if (u < minU) minU = u;
+      if (v < minV) minV = v;
+    }
+
+    if (!minU.isFinite || !minV.isFinite) {
+      return _OrientedGeometry.identity();
+    }
+
+    final Offset translation = axisX * minU + axisY * minV;
+    final Float64List matrix = Float64List(16);
+    matrix[0] = axisX.dx;
+    matrix[1] = axisX.dy;
+    matrix[4] = axisY.dx;
+    matrix[5] = axisY.dy;
+    matrix[12] = translation.dx;
+    matrix[13] = translation.dy;
+    matrix[10] = 1.0;
+    matrix[15] = 1.0;
+
+    return _OrientedGeometry._(
+      axisX: axisX,
+      axisY: axisY,
+      translation: translation,
+      forwardMatrix: matrix,
+      isValid: true,
+    );
+  }
+
+  Offset toAligned(Offset point) {
+    final Offset delta = point - translation;
+    final double u = delta.dx * axisX.dx + delta.dy * axisX.dy;
+    final double v = delta.dx * axisY.dx + delta.dy * axisY.dy;
+    return Offset(u, v);
+  }
+}
+
 class _CharacterVisual {
   const _CharacterVisual({
     required this.text,
     required this.confidence,
     required this.polygon,
     required this.bounds,
+    required this.orientedBounds,
   });
 
   final String text;
   final double confidence;
   final List<Offset> polygon;
   final Rect bounds;
+  final _OrientedBounds? orientedBounds;
 }
 
 class _BlockVisual {
@@ -1899,6 +2112,7 @@ class _BlockVisual {
     required this.localPolygon,
     required this.bounds,
     required this.characters,
+    required this.geometry,
   });
 
   final int index;
@@ -1907,6 +2121,7 @@ class _BlockVisual {
   final List<Offset> localPolygon;
   final Rect bounds;
   final List<_CharacterVisual> characters;
+  final _OrientedGeometry geometry;
 
   int get characterCount => characters.length;
 }
@@ -2196,23 +2411,94 @@ class _EditableBlockPainter extends CustomPainter {
           }
           selected.add(character);
         }
-        for (final rrect in _buildHighlightRegions(selected)) {
-          canvas.drawRRect(rrect, highlightPaint);
+        if (selected.isNotEmpty) {
+          final Path? rotatedPath = _buildRotatedHighlightPath(selected);
+          if (rotatedPath != null) {
+            canvas.drawPath(rotatedPath, highlightPaint);
+          } else {
+            for (final rrect in _buildAxisAlignedHighlightRegions(selected)) {
+              canvas.drawRRect(rrect, highlightPaint);
+            }
+          }
         }
       }
     }
   }
 
-  List<RRect> _buildHighlightRegions(List<_CharacterVisual> characters) {
+  Path? _buildRotatedHighlightPath(List<_CharacterVisual> characters) {
+    final _OrientedGeometry geometry = visual.geometry;
+    if (!geometry.isValid) {
+      return null;
+    }
+
+    final List<Rect> inflatedRects = <Rect>[];
+    for (final character in characters) {
+      final _OrientedBounds? oriented = character.orientedBounds;
+      if (oriented == null) {
+        return null;
+      }
+      inflatedRects.add(
+        oriented.inflate(
+          _kHighlightHorizontalPadding,
+          _kHighlightVerticalPadding,
+        ),
+      );
+    }
+
+    final List<Rect> merged = _mergeSequentialRects(inflatedRects);
+    if (merged.isEmpty) {
+      return null;
+    }
+
+    final Path path = Path();
+    for (final rect in merged) {
+      path.addRRect(
+        RRect.fromRectAndRadius(
+          rect,
+          Radius.circular(_kHighlightCornerRadius),
+        ),
+      );
+    }
+
+    return path.transform(geometry.forwardMatrix);
+  }
+
+  List<RRect> _buildAxisAlignedHighlightRegions(
+    List<_CharacterVisual> characters,
+  ) {
     if (characters.isEmpty) {
       return const [];
     }
 
-    final mergedRects = <Rect>[];
+    final List<Rect> rects = <Rect>[];
+    for (final character in characters) {
+      rects.add(_inflateRect(character.bounds));
+    }
+
+    final List<Rect> merged = _mergeSequentialRects(rects);
+    if (merged.isEmpty) {
+      return const [];
+    }
+
+    return merged
+        .map(
+          (rect) => RRect.fromRectAndRadius(
+            rect,
+            Radius.circular(_kHighlightCornerRadius),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  List<Rect> _mergeSequentialRects(List<Rect> rects) {
+    if (rects.isEmpty) {
+      return const [];
+    }
+
+    final List<Rect> merged = <Rect>[];
     Rect? current;
 
-    for (final character in characters) {
-      final rect = _inflateRect(character.bounds);
+    for (final rect in rects) {
       if (rect.isEmpty) {
         continue;
       }
@@ -2224,31 +2510,32 @@ class _EditableBlockPainter extends CustomPainter {
       if (_isSameLine(current, rect)) {
         current = _mergeRects(current, rect);
       } else {
-        mergedRects.add(current);
+        merged.add(current);
         current = rect;
       }
     }
 
     if (current != null) {
-      mergedRects.add(current);
+      merged.add(current);
     }
 
-    return mergedRects
-        .map(
-          (rect) => RRect.fromRectAndRadius(
-            rect,
-            Radius.circular(_kHighlightCornerRadius),
-          ),
-        )
-        .toList(growable: false);
+    return merged;
   }
 
   Rect _inflateRect(Rect rect) {
+    return _inflateRectBy(
+      rect,
+      _kHighlightHorizontalPadding,
+      _kHighlightVerticalPadding,
+    );
+  }
+
+  Rect _inflateRectBy(Rect rect, double horizontal, double vertical) {
     return Rect.fromLTRB(
-      rect.left - _kHighlightHorizontalPadding,
-      rect.top - _kHighlightVerticalPadding,
-      rect.right + _kHighlightHorizontalPadding,
-      rect.bottom + _kHighlightVerticalPadding,
+      rect.left - horizontal,
+      rect.top - vertical,
+      rect.right + horizontal,
+      rect.bottom + vertical,
     );
   }
 
