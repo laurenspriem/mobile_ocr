@@ -11,7 +11,6 @@ const double _kHighlightHorizontalPadding = 2.5;
 const double _kHighlightVerticalPadding = 1.6;
 const double _kHighlightCornerRadius = 4.0;
 const double _kHighlightLineToleranceFactor = 0.7;
-const double _kCopyPointerHeight = 8.0;
 
 /// A widget that overlays detected text on top of the source image while
 /// providing an editor-like selection experience.
@@ -48,10 +47,10 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   static const double _handlePointerHeight = 12.0;
   static const double _handlePointerWidth = 16.0;
   static const double _handleHitboxExtent = 44.0;
-  static const double _copyButtonWidth = 104.0;
-  static const double _copyButtonHeight = 34.0;
-  static const double _copyButtonSpacing = 12.0;
-  static const double _copyPointerHeight = _kCopyPointerHeight;
+  static const double _toolbarWidth = 192.0;
+  static const double _toolbarHeight = 44.0;
+  static const double _toolbarMinVerticalSpacing = 24.0;
+  static const double _toolbarHandleClearance = 8.0;
   static const Color _handleFillColor = Color(0xFF2563EB);
   static const Color _handleStrokeColor = Color(0xFF2563EB);
   static final RegExp _wordCharacterPattern = RegExp(
@@ -472,6 +471,48 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     return handles;
   }
 
+  double? _selectionHandleVisualTop() {
+    double? top;
+    void accumulate(_SelectionAnchor? anchor, {required bool isStart}) {
+      if (anchor == null) {
+        return;
+      }
+      final Offset? anchorPoint = _handleAnchorPoint(anchor, isStart: isStart);
+      if (anchorPoint == null) {
+        return;
+      }
+      final double candidate = isStart
+          ? anchorPoint.dy - (_handleHeadDiameter + _handlePointerHeight)
+          : anchorPoint.dy;
+      top = top == null ? candidate : min(top!, candidate);
+    }
+
+    accumulate(_baseAnchor, isStart: true);
+    accumulate(_extentAnchor, isStart: false);
+    return top;
+  }
+
+  double? _selectionHandleVisualBottom() {
+    double? bottom;
+    void accumulate(_SelectionAnchor? anchor, {required bool isStart}) {
+      if (anchor == null) {
+        return;
+      }
+      final Offset? anchorPoint = _handleAnchorPoint(anchor, isStart: isStart);
+      if (anchorPoint == null) {
+        return;
+      }
+      final double candidate = isStart
+          ? anchorPoint.dy
+          : anchorPoint.dy + (_handleHeadDiameter + _handlePointerHeight);
+      bottom = bottom == null ? candidate : max(bottom!, candidate);
+    }
+
+    accumulate(_baseAnchor, isStart: true);
+    accumulate(_extentAnchor, isStart: false);
+    return bottom;
+  }
+
   Widget? _buildCopyHandleButton(BoxConstraints constraints) {
     if (_activeSelections.isEmpty || _activeHandle != null || _isSelecting) {
       return null;
@@ -482,48 +523,79 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       return null;
     }
 
-    const double spacing = _copyButtonSpacing;
-    const double totalHeight = _copyButtonHeight + _copyPointerHeight;
+    final double spacing = max(
+      _toolbarMinVerticalSpacing,
+      _handleHeadDiameter + _handlePointerHeight + 12.0,
+    );
+    const double totalHeight = _toolbarHeight;
 
-    double left = selectionBounds.center.dx - (_copyButtonWidth / 2);
+    double left = selectionBounds.center.dx - (_toolbarWidth / 2);
     if (constraints.hasBoundedWidth) {
       final double minLeft = 8.0;
       final double maxLeft = max(
         minLeft,
-        constraints.maxWidth - _copyButtonWidth - 8.0,
+        constraints.maxWidth - _toolbarWidth - 8.0,
       );
       left = left.clamp(minLeft, maxLeft);
     }
 
-    bool anchorAbove = true;
-    double anchorY = selectionBounds.top - spacing;
-    double top = anchorY - totalHeight;
+    double? minTop;
+    double? maxTop;
     if (constraints.hasBoundedHeight) {
-      final double minTop = 8.0;
-      final double maxTop = max(
-        minTop,
-        constraints.maxHeight - totalHeight - 8.0,
-      );
-      if (top < minTop) {
-        anchorAbove = false;
-        anchorY = selectionBounds.bottom + spacing + (_handleHeadDiameter / 2);
-        top = anchorY;
+      minTop = 8.0;
+      maxTop = max(minTop, constraints.maxHeight - totalHeight - 8.0);
+    }
+
+    double? placeAbove() {
+      double candidate = selectionBounds.top - spacing - totalHeight;
+      if (minTop != null) {
+        candidate = max(candidate, minTop);
       }
-      top = top.clamp(minTop, maxTop);
+      if (maxTop != null) {
+        candidate = min(candidate, maxTop);
+      }
+      final double? handleTop = _selectionHandleVisualTop();
+      if (handleTop != null &&
+          candidate + totalHeight > handleTop - _toolbarHandleClearance) {
+        return null;
+      }
+      return candidate;
+    }
+
+    double? placeBelow() {
+      double candidate = selectionBounds.bottom + spacing;
+      if (minTop != null) {
+        candidate = max(candidate, minTop);
+      }
+      final double? handleBottom = _selectionHandleVisualBottom();
+      if (handleBottom != null) {
+        candidate = max(candidate, handleBottom + _toolbarHandleClearance);
+      }
+      if (maxTop != null && candidate > maxTop) {
+        return null;
+      }
+      return candidate;
+    }
+
+    double? top = placeAbove();
+    top ??= placeBelow();
+    top ??= selectionBounds.top - spacing - totalHeight;
+
+    if (minTop != null && top < minTop) {
+      top = minTop;
+    }
+    if (maxTop != null && top > maxTop) {
+      top = maxTop;
     }
 
     return Positioned(
       left: left,
       top: top,
-      width: _copyButtonWidth,
+      width: _toolbarWidth,
       height: totalHeight,
-      child: _CopyActionButton(
-        onPressed: _copySelectedText,
-        accentColor: _handleStrokeColor,
-        width: _copyButtonWidth,
-        height: _copyButtonHeight,
-        anchorAboveSelection: anchorAbove,
-        pointerHeight: _copyPointerHeight,
+      child: _SelectionToolbar(
+        onCopy: _copySelectedText,
+        onSelectAll: _selectAllText,
       ),
     );
   }
@@ -1568,6 +1640,51 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     });
   }
 
+  void _selectAllText() {
+    if (_blockOrder.isEmpty) {
+      return;
+    }
+
+    final Map<int, TextSelection> selections = <int, TextSelection>{};
+    int? firstIndex;
+    int? lastIndex;
+
+    for (final index in _blockOrder) {
+      final _BlockVisual? visual = _blockVisuals[index];
+      if (visual == null || visual.characterCount == 0) {
+        continue;
+      }
+
+      selections[index] = TextSelection(
+        baseOffset: 0,
+        extentOffset: visual.characterCount,
+      );
+      firstIndex ??= index;
+      lastIndex = index;
+    }
+
+    if (selections.isEmpty || firstIndex == null || lastIndex == null) {
+      return;
+    }
+
+    final int first = firstIndex;
+    final int last = lastIndex;
+    final int lastExtent = _blockVisuals[last]?.characterCount ?? 0;
+
+    setState(() {
+      _activeSelections = selections;
+      _baseAnchor = _SelectionAnchor(first, const TextPosition(offset: 0));
+      _extentAnchor = _SelectionAnchor(last, TextPosition(offset: lastExtent));
+      _isSelecting = false;
+      _activeHandle = null;
+      _activeHandleTouchOffset = null;
+      _updateSelectionPreview();
+    });
+
+    HapticFeedback.selectionClick();
+    _notifySelection();
+  }
+
   void _clearSelection() {
     setState(() {
       _activeSelections = <int, TextSelection>{};
@@ -1801,150 +1918,103 @@ class _DisplayMetrics {
   final Offset offset;
 }
 
-class _CopyActionButton extends StatelessWidget {
-  const _CopyActionButton({
-    required this.onPressed,
-    required this.accentColor,
-    required this.width,
-    required this.height,
-    required this.anchorAboveSelection,
-    required this.pointerHeight,
-  });
+class _SelectionToolbar extends StatelessWidget {
+  const _SelectionToolbar({required this.onCopy, required this.onSelectAll});
 
-  final VoidCallback onPressed;
-  final Color accentColor;
-  final double width;
-  final double height;
-  final bool anchorAboveSelection;
-  final double pointerHeight;
+  final VoidCallback onCopy;
+  final VoidCallback onSelectAll;
 
   @override
   Widget build(BuildContext context) {
-    final Widget body = Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onPressed,
-        child: Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: const Color(0xFF1F2937),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: accentColor.withValues(alpha: 0.24),
-              width: 1.0,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black12,
-                blurRadius: 6,
-                offset: Offset(0, 3),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(CupertinoIcons.doc_on_doc, size: 15, color: Colors.white),
-              const SizedBox(width: 4),
-              const Text(
-                'Copy',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (pointerHeight <= 0) {
-      return Semantics(
-        button: true,
-        label: 'Copy selected text',
-        child: SizedBox(width: width, height: height, child: body),
-      );
-    }
-
-    final Widget pointer = SizedBox(
-      width: 20,
-      height: pointerHeight,
-      child: CustomPaint(
-        painter: _CopyPointerPainter(
-          color: const Color(0xFF1F2937),
-          borderColor: accentColor.withValues(alpha: 0.24),
-          pointingDown: anchorAboveSelection,
-        ),
-      ),
-    );
-
-    final List<Widget> children = anchorAboveSelection
-        ? <Widget>[body, Align(alignment: Alignment.center, child: pointer)]
-        : <Widget>[Align(alignment: Alignment.center, child: pointer), body];
+    const Color background = Color(0xFF1F2937);
+    final BorderRadius radius = BorderRadius.circular(22);
 
     return Semantics(
-      button: true,
-      label: 'Copy selected text',
-      child: SizedBox(
-        width: width,
-        height: height + pointerHeight,
-        child: Column(mainAxisSize: MainAxisSize.min, children: children),
+      container: true,
+      label: 'Text selection actions',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: radius,
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 12,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Material(
+            color: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  _ToolbarActionButton(
+                    label: 'Copy',
+                    semanticLabel: 'Copy selected text',
+                    onTap: onCopy,
+                  ),
+                  Container(
+                    width: 1,
+                    height: double.infinity,
+                    color: Colors.white.withValues(alpha: 0.12),
+                  ),
+                  _ToolbarActionButton(
+                    label: 'Select all',
+                    semanticLabel: 'Select all text',
+                    onTap: onSelectAll,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _CopyPointerPainter extends CustomPainter {
-  const _CopyPointerPainter({
-    required this.color,
-    required this.borderColor,
-    required this.pointingDown,
+class _ToolbarActionButton extends StatelessWidget {
+  const _ToolbarActionButton({
+    required this.label,
+    required this.semanticLabel,
+    required this.onTap,
   });
 
-  final Color color;
-  final Color borderColor;
-  final bool pointingDown;
+  final String label;
+  final String semanticLabel;
+  final VoidCallback onTap;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0) {
-      return;
-    }
-
-    final Path path = Path();
-    if (pointingDown) {
-      path.moveTo(0, 0);
-      path.lineTo(size.width / 2, size.height);
-      path.lineTo(size.width, 0);
-    } else {
-      path.moveTo(0, size.height);
-      path.lineTo(size.width / 2, 0);
-      path.lineTo(size.width, size.height);
-    }
-    path.close();
-
-    final Paint fillPaint = Paint()..color = color;
-    canvas.drawPath(path, fillPaint);
-
-    final Paint borderPaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-    canvas.drawPath(path, borderPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _CopyPointerPainter oldDelegate) {
-    return oldDelegate.color != color ||
-        oldDelegate.borderColor != borderColor ||
-        oldDelegate.pointingDown != pointingDown;
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Semantics(
+        button: true,
+        label: semanticLabel,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: Colors.white.withValues(alpha: 0.08),
+          highlightColor: Colors.white.withValues(alpha: 0.05),
+          child: SizedBox(
+            height: double.infinity,
+            child: Center(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
