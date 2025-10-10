@@ -166,5 +166,4 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
         ),
       );
   }
-
 }

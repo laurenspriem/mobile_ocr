@@ -46,6 +46,11 @@ final ocrPlugin = MobileOcr();
 // No-op on iOS because Vision ships with the OS.
 await ocrPlugin.prepareModels();
 
+// Optional quick check if the image contains high-confidence text (runs much faster than actual full text recognition)
+final hasText = await ocrPlugin.hasText(
+  imagePath: '/path/to/image.png',
+);
+
 // Perform OCR by supplying an image path
 final textBlocks = await ocrPlugin.detectText(
   imagePath: '/path/to/image.png',
@@ -114,12 +119,14 @@ iOS does not require this step because it relies on the built-in Vision framewor
 ## Platform Support
 
 Currently supports:
+
 - ✅ Android (API 24+)
 - ✅ iOS 14+
 
 ## Acknowledgments
 
 This work would not be possible without:
+
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) - The original OCR models and algorithms
 - [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) - ONNX implementation and pipeline architecture
 

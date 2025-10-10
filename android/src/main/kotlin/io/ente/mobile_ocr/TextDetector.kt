@@ -22,7 +22,47 @@ class TextDetector(
     }
 
     fun detect(bitmap: Bitmap): List<TextBox> {
-        return OcrPerformanceLogger.trace("TextDetector#detect") {
+        val boxes = mutableListOf<TextBox>()
+        runDetection(
+            section = "TextDetector#detect",
+            bitmap = bitmap,
+        ) { box, _ ->
+            boxes.add(box)
+            false
+        }
+
+        if (boxes.isEmpty()) {
+            return emptyList()
+        }
+
+        return sortBoxes(boxes)
+    }
+
+    fun hasHighConfidenceDetection(
+        bitmap: Bitmap,
+        minimumDetectionConfidence: Float
+    ): Boolean {
+        var found = false
+        runDetection(
+            section = "TextDetector#hasHighConfidenceDetection",
+            bitmap = bitmap,
+        ) { _, score ->
+            if (score >= minimumDetectionConfidence) {
+                found = true
+                true
+            } else {
+                false
+            }
+        }
+        return found
+    }
+
+    private fun runDetection(
+        section: String,
+        bitmap: Bitmap,
+        handler: (TextBox, Float) -> Boolean
+    ) {
+        OcrPerformanceLogger.trace(section) {
             val originalWidth = bitmap.width
             val originalHeight = bitmap.height
 
@@ -34,11 +74,12 @@ class TextDetector(
                 output = session.run(inputs)[0] as OnnxTensor
 
                 postprocessDetection(
-                    output,
-                    originalWidth,
-                    originalHeight,
-                    resizedWidth,
-                    resizedHeight
+                    output = output,
+                    originalWidth = originalWidth,
+                    originalHeight = originalHeight,
+                    resizedWidth = resizedWidth,
+                    resizedHeight = resizedHeight,
+                    handler = handler
                 )
             } finally {
                 output?.close()
@@ -114,8 +155,9 @@ class TextDetector(
         originalWidth: Int,
         originalHeight: Int,
         resizedWidth: Int,
-        resizedHeight: Int
-    ): List<TextBox> {
+        resizedHeight: Int,
+        handler: (TextBox, Float) -> Boolean
+    ) {
         val outputArray = output.floatBuffer.array()
         val probMap = Array(resizedHeight) { FloatArray(resizedWidth) }
 
@@ -137,11 +179,10 @@ class TextDetector(
         val components = extractConnectedComponents(binaryMap)
             .sortedByDescending { it.size }
             .take(MAX_CANDIDATES)
-        val boxes = mutableListOf<TextBox>()
         val scaleX = originalWidth.toFloat() / resizedWidth
         val scaleY = originalHeight.toFloat() / resizedHeight
 
-        for (component in components) {
+        componentLoop@ for (component in components) {
             if (component.size < 4) continue
 
             val hull = convexHull(component)
@@ -169,10 +210,11 @@ class TextDetector(
             }
 
             val orderedPoints = ImageUtils.orderPointsClockwise(scaledPoints)
-            boxes.add(TextBox(orderedPoints))
+            val shouldBreak = handler(TextBox(orderedPoints), score)
+            if (shouldBreak) {
+                break@componentLoop
+            }
         }
-
-        return sortBoxes(boxes)
     }
     private fun extractConnectedComponents(binaryMap: Array<BooleanArray>): List<List<PointF>> {
         val height = binaryMap.size

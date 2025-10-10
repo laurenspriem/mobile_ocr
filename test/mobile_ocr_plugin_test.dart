@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_ocr/mobile_ocr_plugin.dart';
 import 'package:mobile_ocr/mobile_ocr_plugin_platform_interface.dart';
@@ -20,6 +22,11 @@ class MockMobileOcrPlatform
   }
 
   @override
+  Future<bool> hasText({required String imagePath}) async {
+    return false;
+  }
+
+  @override
   Future<Map<dynamic, dynamic>> prepareModels() async {
     return {'isReady': true, 'version': 'test', 'modelPath': '/tmp'};
   }
@@ -27,6 +34,10 @@ class MockMobileOcrPlatform
 
 void main() {
   final MobileOcrPlatform initialPlatform = MobileOcrPlatform.instance;
+
+  tearDown(() {
+    MobileOcrPlatform.instance = initialPlatform;
+  });
 
   test('$MethodChannelMobileOcr is the default instance', () {
     expect(initialPlatform, isInstanceOf<MethodChannelMobileOcr>());
@@ -74,4 +85,40 @@ void main() {
     expect(block.boundingBox.right, 10.0);
     expect(block.boundingBox.bottom, 7.0);
   });
+
+  test('hasText validates image path exists', () async {
+    final mobileOcr = MobileOcr();
+    expect(
+      () => mobileOcr.hasText(imagePath: '/tmp/does_not_exist.png'),
+      throwsArgumentError,
+    );
+  });
+
+  test('hasText delegates to platform implementation', () async {
+    final tempDir = await Directory.systemTemp.createTemp('mobile_ocr_test');
+    final tempFile = File('${tempDir.path}/image.png');
+    await tempFile.writeAsBytes([0x00]);
+
+    final mobileOcr = MobileOcr();
+    final verifyingPlatform = _VerifyingMobileOcrPlatform();
+    verifyingPlatform.response = true;
+    MobileOcrPlatform.instance = verifyingPlatform;
+
+    final result = await mobileOcr.hasText(imagePath: tempFile.path);
+    expect(result, isTrue);
+    expect(verifyingPlatform.lastImagePath, tempFile.path);
+
+    await tempDir.delete(recursive: true);
+  });
+}
+
+class _VerifyingMobileOcrPlatform extends MockMobileOcrPlatform {
+  String? lastImagePath;
+  bool response = false;
+
+  @override
+  Future<bool> hasText({required String imagePath}) async {
+    lastImagePath = imagePath;
+    return response;
+  }
 }
