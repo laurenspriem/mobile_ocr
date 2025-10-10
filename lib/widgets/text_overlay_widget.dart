@@ -7,6 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_ocr/models/text_block.dart';
 
+const double _kHighlightHorizontalPadding = 2.5;
+const double _kHighlightVerticalPadding = 1.6;
+const double _kHighlightCornerRadius = 4.0;
+const double _kHighlightLineToleranceFactor = 0.7;
+const double _kCopyPointerHeight = 8.0;
+
 /// A widget that overlays detected text on top of the source image while
 /// providing an editor-like selection experience.
 class TextOverlayWidget extends StatefulWidget {
@@ -38,8 +44,22 @@ class TextOverlayWidget extends StatefulWidget {
 class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   static const double _epsilon = 1e-6;
   static const double _characterHitPadding = 3.0;
+  static const double _handleCircleDiameter = 14.0;
+  static const double _handleStemHeight = 22.0;
+  static const double _handleStemWidth = 2.0;
+  static const double _handleHitboxExtent = 44.0;
+  static const double _copyButtonWidth = 104.0;
+  static const double _copyButtonHeight = 34.0;
+  static const double _copyButtonSpacing = 12.0;
+  static const double _copyPointerHeight = _kCopyPointerHeight;
+  static const Color _handleFillColor = Color(0xFFF5F7FB);
+  static const Color _handleStrokeColor = Color(0xFF4C6EF5);
+  static final RegExp _wordCharacterPattern = RegExp(
+    r'[\p{L}\p{N}]',
+    unicode: true,
+  );
 
-  final GlobalKey _toolbarKey = GlobalKey();
+  final GlobalKey _interactiveViewerKey = GlobalKey();
   final TransformationController _transformController =
       TransformationController();
 
@@ -59,10 +79,10 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   bool _isSelecting = false;
   int _activePointerCount = 0;
 
-  Offset _toolbarOffset = Offset.zero;
-  bool _isToolbarDragging = false;
-  Size? _toolbarSize;
   String _selectedTextPreview = '';
+  Offset? _pendingDoubleTapScenePoint;
+  _HandleType? _activeHandle;
+  Offset? _activeHandleTouchOffset;
 
   @override
   void initState() {
@@ -97,7 +117,8 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
           });
         });
       }
-    } else if (oldWidget.enableSelectionPreview && !widget.enableSelectionPreview) {
+    } else if (oldWidget.enableSelectionPreview &&
+        !widget.enableSelectionPreview) {
       if (_selectedTextPreview.isNotEmpty) {
         setState(() {
           _selectedTextPreview = '';
@@ -135,8 +156,10 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       _baseAnchor = null;
       _extentAnchor = null;
       _isSelecting = false;
-      _toolbarOffset = Offset.zero;
       _selectedTextPreview = '';
+      _pendingDoubleTapScenePoint = null;
+      _activeHandle = null;
+      _activeHandleTouchOffset = null;
     });
     _loadImageDimensions();
   }
@@ -155,7 +178,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         _buildInteractiveImage(),
         if (widget.enableSelectionPreview && _selectedTextPreview.isNotEmpty)
           _buildSelectionPreview(),
-        if (widget.textBlocks.isNotEmpty) _buildSelectionToolbar(),
       ],
     );
   }
@@ -164,6 +186,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     return LayoutBuilder(
       builder: (context, constraints) {
         _scheduleMetricsRebuild(constraints);
+        final Widget? copyButton = _buildCopyHandleButton(constraints);
 
         return Listener(
           onPointerDown: (_) => _activePointerCount += 1,
@@ -173,6 +196,9 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
               _activePointerCount = max(0, _activePointerCount - 1),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            onTapDown: _handleTapDown,
+            onDoubleTapDown: _handleDoubleTapDown,
+            onDoubleTap: _handleDoubleTap,
             onPanStart: (details) {
               if (_activePointerCount > 1) {
                 return;
@@ -190,6 +216,11 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
                 _onPanEnd(details);
               }
             },
+            onPanCancel: () {
+              if (_isSelecting) {
+                _onPanCancel();
+              }
+            },
             onLongPressStart: (details) {
               if (_activePointerCount > 1) {
                 return;
@@ -197,6 +228,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
               _onLongPressStart(details);
             },
             child: InteractiveViewer(
+              key: _interactiveViewerKey,
               transformationController: _transformController,
               minScale: 0.5,
               maxScale: 4.0,
@@ -225,6 +257,8 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
                     ),
                   ),
                   ..._buildEditableBlockOverlays(),
+                  ..._buildSelectionHandles(),
+                  if (copyButton != null) copyButton,
                 ],
               ),
             ),
@@ -232,6 +266,20 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         );
       },
     );
+  }
+
+  Offset? _sceneFromViewport(Offset viewportPoint) {
+    return _transformController.toScene(viewportPoint);
+  }
+
+  Offset? _sceneFromGlobal(Offset globalPoint) {
+    final renderBox =
+        _interactiveViewerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) {
+      return null;
+    }
+    final local = renderBox.globalToLocal(globalPoint);
+    return _transformController.toScene(local);
   }
 
   void _scheduleMetricsRebuild(BoxConstraints constraints) {
@@ -343,6 +391,423 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     return overlays;
   }
 
+  Rect? _selectedRegionBounds() {
+    if (_activeSelections.isEmpty) {
+      return null;
+    }
+
+    Rect? bounds;
+    for (final entry in _activeSelections.entries) {
+      final _BlockVisual? visual = _blockVisuals[entry.key];
+      if (visual == null || visual.characterCount == 0) {
+        continue;
+      }
+
+      final selection = entry.value;
+      final int start = selection.start.clamp(0, visual.characterCount);
+      final int end = selection.end.clamp(start, visual.characterCount);
+      if (start >= end) {
+        continue;
+      }
+
+      for (int i = start; i < end && i < visual.characters.length; i++) {
+        final Rect charRect = visual.characters[i].bounds;
+        if (charRect.isEmpty) {
+          continue;
+        }
+        final Rect expanded = Rect.fromLTRB(
+          charRect.left - _kHighlightHorizontalPadding,
+          charRect.top - _kHighlightVerticalPadding,
+          charRect.right + _kHighlightHorizontalPadding,
+          charRect.bottom + _kHighlightVerticalPadding,
+        );
+        final Rect globalRect = expanded.shift(visual.bounds.topLeft);
+        bounds = bounds == null
+            ? globalRect
+            : bounds.expandToInclude(globalRect);
+      }
+    }
+
+    if (bounds == null) {
+      final _SelectionAnchor? baseAnchor = _baseAnchor;
+      if (baseAnchor != null) {
+        final Rect? startRect = _caretRectForAnchor(baseAnchor, isStart: true);
+        if (startRect != null) {
+          bounds = startRect;
+        }
+      }
+      final _SelectionAnchor? extentAnchor = _extentAnchor;
+      if (extentAnchor != null) {
+        final Rect? endRect = _caretRectForAnchor(extentAnchor, isStart: false);
+        if (endRect != null) {
+          bounds = bounds == null ? endRect : bounds.expandToInclude(endRect);
+        }
+      }
+    }
+
+    return bounds;
+  }
+
+  List<Widget> _buildSelectionHandles() {
+    if (_activeSelections.isEmpty ||
+        _baseAnchor == null ||
+        _extentAnchor == null) {
+      return const [];
+    }
+
+    final List<Widget> handles = <Widget>[];
+
+    final _SelectionAnchor baseAnchor = _baseAnchor!;
+    final Offset? startPoint = _handleAnchorPoint(baseAnchor, isStart: true);
+    if (startPoint != null) {
+      handles.add(_buildHandleWidget(anchorPoint: startPoint, isStart: true));
+    }
+
+    final _SelectionAnchor extentAnchor = _extentAnchor!;
+    final Offset? endPoint = _handleAnchorPoint(extentAnchor, isStart: false);
+    if (endPoint != null) {
+      handles.add(_buildHandleWidget(anchorPoint: endPoint, isStart: false));
+    }
+
+    return handles;
+  }
+
+  Widget? _buildCopyHandleButton(BoxConstraints constraints) {
+    if (_activeSelections.isEmpty || _activeHandle != null || _isSelecting) {
+      return null;
+    }
+
+    final Rect? selectionBounds = _selectedRegionBounds();
+    if (selectionBounds == null) {
+      return null;
+    }
+
+    const double spacing = _copyButtonSpacing;
+    const double totalHeight = _copyButtonHeight + _copyPointerHeight;
+
+    double left = selectionBounds.center.dx - (_copyButtonWidth / 2);
+    if (constraints.hasBoundedWidth) {
+      final double minLeft = 8.0;
+      final double maxLeft = max(
+        minLeft,
+        constraints.maxWidth - _copyButtonWidth - 8.0,
+      );
+      left = left.clamp(minLeft, maxLeft);
+    }
+
+    bool anchorAbove = true;
+    double anchorY = selectionBounds.top - spacing;
+    double top = anchorY - totalHeight;
+    if (constraints.hasBoundedHeight) {
+      final double minTop = 8.0;
+      final double maxTop = max(
+        minTop,
+        constraints.maxHeight - totalHeight - 8.0,
+      );
+      if (top < minTop) {
+        anchorAbove = false;
+        anchorY =
+            selectionBounds.bottom + spacing + (_handleCircleDiameter / 2);
+        top = anchorY;
+      }
+      top = top.clamp(minTop, maxTop);
+    }
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: _copyButtonWidth,
+      height: totalHeight,
+      child: _CopyActionButton(
+        onPressed: _copySelectedText,
+        accentColor: _handleStrokeColor,
+        width: _copyButtonWidth,
+        height: _copyButtonHeight,
+        anchorAboveSelection: anchorAbove,
+        pointerHeight: _copyPointerHeight,
+      ),
+    );
+  }
+
+  Widget _buildHandleWidget({
+    required Offset anchorPoint,
+    required bool isStart,
+  }) {
+    final double left = anchorPoint.dx - (_handleHitboxExtent / 2);
+    final double top = isStart
+        ? anchorPoint.dy - _handleHitboxExtent
+        : anchorPoint.dy;
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: _handleHitboxExtent,
+      height: _handleHitboxExtent,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onPanStart: (details) => _onHandlePanStart(
+          details,
+          isStart ? _HandleType.base : _HandleType.extent,
+        ),
+        onPanUpdate: _onHandlePanUpdate,
+        onPanEnd: (_) => _onHandlePanEnd(),
+        onPanCancel: _onHandlePanCancel,
+        child: Align(
+          alignment: isStart ? Alignment.bottomCenter : Alignment.topCenter,
+          child: _SelectionHandleVisual(
+            fillColor: _handleFillColor,
+            borderColor: _handleStrokeColor,
+            isStart: isStart,
+            circleDiameter: _handleCircleDiameter,
+            stemHeight: _handleStemHeight,
+            stemWidth: _handleStemWidth,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Offset? _handleAnchorPoint(_SelectionAnchor anchor, {required bool isStart}) {
+    final Rect? caretRect = _caretRectForAnchor(anchor, isStart: isStart);
+    if (caretRect == null) {
+      return null;
+    }
+    return isStart ? caretRect.topLeft : caretRect.bottomRight;
+  }
+
+  bool _isScenePointOnHandle(Offset scenePoint) {
+    if (_activeSelections.isEmpty ||
+        _baseAnchor == null ||
+        _extentAnchor == null) {
+      return false;
+    }
+
+    final Offset? startPoint = _handleAnchorPoint(_baseAnchor!, isStart: true);
+    if (startPoint != null) {
+      final Rect startRect = Rect.fromLTWH(
+        startPoint.dx - (_handleHitboxExtent / 2),
+        startPoint.dy - _handleHitboxExtent,
+        _handleHitboxExtent,
+        _handleHitboxExtent,
+      );
+      if (startRect.contains(scenePoint)) {
+        return true;
+      }
+    }
+
+    final Offset? endPoint = _handleAnchorPoint(_extentAnchor!, isStart: false);
+    if (endPoint != null) {
+      final Rect endRect = Rect.fromLTWH(
+        endPoint.dx - (_handleHitboxExtent / 2),
+        endPoint.dy,
+        _handleHitboxExtent,
+        _handleHitboxExtent,
+      );
+      if (endRect.contains(scenePoint)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Rect? _caretRectForAnchor(_SelectionAnchor anchor, {required bool isStart}) {
+    final _BlockVisual? visual = _blockVisuals[anchor.blockIndex];
+    if (visual == null || visual.characterCount == 0) {
+      return null;
+    }
+
+    final int count = visual.characterCount;
+    int referenceIndex;
+    if (isStart) {
+      referenceIndex = _clampIndex(anchor.position.offset, 0, count - 1);
+    } else {
+      referenceIndex = _clampIndex(anchor.position.offset - 1, 0, count - 1);
+    }
+
+    final Rect? baseRect = _visibleRectNearIndex(
+      visual,
+      referenceIndex,
+      preferForward: isStart,
+    );
+    if (baseRect == null) {
+      return null;
+    }
+
+    final Rect inflated = Rect.fromLTRB(
+      baseRect.left - _kHighlightHorizontalPadding,
+      baseRect.top - _kHighlightVerticalPadding,
+      baseRect.right + _kHighlightHorizontalPadding,
+      baseRect.bottom + _kHighlightVerticalPadding,
+    );
+
+    return inflated.shift(visual.bounds.topLeft);
+  }
+
+  Rect? _visibleRectNearIndex(
+    _BlockVisual visual,
+    int index, {
+    required bool preferForward,
+  }) {
+    if (visual.characterCount == 0) {
+      return null;
+    }
+
+    final List<_CharacterVisual> characters = visual.characters;
+    final int clamped = _clampIndex(index, 0, characters.length - 1);
+
+    Rect candidate = characters[clamped].bounds;
+    if (_isRenderableRect(candidate)) {
+      return candidate;
+    }
+
+    if (preferForward) {
+      for (int i = clamped + 1; i < characters.length; i++) {
+        final Rect next = characters[i].bounds;
+        if (_isRenderableRect(next)) {
+          return next;
+        }
+      }
+      for (int i = clamped - 1; i >= 0; i--) {
+        final Rect prev = characters[i].bounds;
+        if (_isRenderableRect(prev)) {
+          return prev;
+        }
+      }
+    } else {
+      for (int i = clamped - 1; i >= 0; i--) {
+        final Rect prev = characters[i].bounds;
+        if (_isRenderableRect(prev)) {
+          return prev;
+        }
+      }
+      for (int i = clamped + 1; i < characters.length; i++) {
+        final Rect next = characters[i].bounds;
+        if (_isRenderableRect(next)) {
+          return next;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  void _onHandlePanStart(DragStartDetails details, _HandleType type) {
+    final bool isStart = type == _HandleType.base;
+    final _SelectionAnchor? activeAnchor = isStart
+        ? _baseAnchor
+        : _extentAnchor;
+    final Offset? anchorPoint = activeAnchor == null
+        ? null
+        : _handleAnchorPoint(activeAnchor, isStart: isStart);
+    final Offset? fingerScene = _sceneFromGlobal(details.globalPosition);
+    _activeHandleTouchOffset = anchorPoint != null && fingerScene != null
+        ? anchorPoint - fingerScene
+        : null;
+
+    widget.onSelectionStart?.call();
+    setState(() {
+      _activeHandle = type;
+      _isSelecting = true;
+      final Offset? targetPoint = fingerScene == null
+          ? anchorPoint
+          : fingerScene + (_activeHandleTouchOffset ?? Offset.zero);
+      if (targetPoint != null) {
+        final int? blockIndex =
+            _hitTestBlock(targetPoint) ?? _nearestBlockIndex(targetPoint);
+        if (blockIndex != null) {
+          final _SelectionAnchor anchor = _anchorForPoint(
+            blockIndex,
+            targetPoint,
+          );
+          if (isStart) {
+            _baseAnchor = anchor;
+          } else {
+            _extentAnchor = anchor;
+          }
+          _recomputeSelections();
+        }
+      }
+    });
+    if (_activeSelections.isNotEmpty) {
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  void _onHandlePanUpdate(DragUpdateDetails details) {
+    if (_activeHandle == null) {
+      return;
+    }
+
+    final Offset? fingerScene = _sceneFromGlobal(details.globalPosition);
+    if (fingerScene == null) {
+      return;
+    }
+
+    final Offset targetPoint =
+        fingerScene + (_activeHandleTouchOffset ?? Offset.zero);
+    final int? blockIndex =
+        _hitTestBlock(targetPoint) ?? _nearestBlockIndex(targetPoint);
+    if (blockIndex == null) {
+      return;
+    }
+
+    final _SelectionAnchor anchor = _anchorForPoint(blockIndex, targetPoint);
+    setState(() {
+      if (_activeHandle == _HandleType.base) {
+        _baseAnchor = anchor;
+      } else {
+        _extentAnchor = anchor;
+      }
+      _recomputeSelections();
+    });
+  }
+
+  void _onHandlePanEnd() {
+    if (_activeHandle == null) {
+      return;
+    }
+
+    setState(() {
+      _isSelecting = false;
+      _activeHandle = null;
+      _activeHandleTouchOffset = null;
+      if (_activeSelections.isEmpty) {
+        _selectedTextPreview = '';
+      }
+    });
+
+    if (_activeSelections.isNotEmpty) {
+      HapticFeedback.lightImpact();
+      _notifySelection();
+    } else {
+      _baseAnchor = null;
+      _extentAnchor = null;
+    }
+  }
+
+  void _onHandlePanCancel() {
+    if (_activeHandle == null) {
+      return;
+    }
+
+    setState(() {
+      _isSelecting = false;
+      _activeHandle = null;
+      _activeHandleTouchOffset = null;
+      if (_activeSelections.isEmpty) {
+        _selectedTextPreview = '';
+      }
+    });
+
+    if (_activeSelections.isNotEmpty) {
+      _notifySelection();
+    } else {
+      _baseAnchor = null;
+      _extentAnchor = null;
+    }
+  }
+
   Widget _buildSelectionPreview() {
     final mediaQuery = MediaQuery.of(context);
     return Positioned(
@@ -359,7 +824,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(18),
             ),
             child: Text(
               _selectedTextPreview,
@@ -379,234 +844,27 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     );
   }
 
-  Widget _buildSelectionToolbar() {
-    final mediaQuery = MediaQuery.of(context);
-    final screenWidth = mediaQuery.size.width;
-    final screenHeight = mediaQuery.size.height;
-
-    final bool hasSelection = _activeSelections.isNotEmpty;
-    final bool hasAllSelected = hasSelection && _isEverythingSelected();
-
-    final renderBox =
-        _toolbarKey.currentContext?.findRenderObject() as RenderBox?;
-    final Size? measuredSize = renderBox?.size;
-    if (measuredSize != null) {
-      _scheduleToolbarSizeUpdate(measuredSize);
-    }
-    final toolbarSize = measuredSize ?? _toolbarSize ?? const Size(220, 52);
-    final double toolbarWidth = toolbarSize.width;
-    final double toolbarHeight = toolbarSize.height;
-
-    final double baseLeft = (screenWidth - toolbarWidth) / 2;
-    final double baseBottom = mediaQuery.padding.bottom + 20;
-
-    final double minLeft = 10.0;
-    final double maxLeft = screenWidth - toolbarWidth - 10.0;
-    final double minBottom = 20.0;
-    final double maxBottom = screenHeight - toolbarHeight - 20.0;
-
-    final double left = (baseLeft + _toolbarOffset.dx).clamp(
-      minLeft,
-      max(minLeft, maxLeft),
-    );
-    final double bottom = (baseBottom - _toolbarOffset.dy).clamp(
-      minBottom,
-      max(minBottom, maxBottom),
-    );
-
-    return Positioned(
-      bottom: bottom,
-      left: left,
-      child: GestureDetector(
-        onPanStart: (_) {
-          setState(() {
-            _isToolbarDragging = true;
-          });
-        },
-        onPanUpdate: (details) {
-          setState(() {
-            _toolbarOffset += details.delta;
-          });
-        },
-        onPanEnd: (_) {
-          setState(() {
-            _isToolbarDragging = false;
-          });
-        },
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: hasSelection ? 1.0 : 0.0),
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-          builder: (context, value, child) {
-            if (value <= 0) {
-              return const SizedBox.shrink();
-            }
-            return Transform.scale(
-              scale: value,
-              child: Container(
-                key: _toolbarKey,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: _isToolbarDragging
-                      ? Colors.black.withValues(alpha: 0.95)
-                      : Colors.black.withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      blurRadius: _isToolbarDragging ? 10 : 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CupertinoButton(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      color: CupertinoColors.systemBlue,
-                      borderRadius: BorderRadius.circular(14),
-                      minimumSize: const Size(28, 28),
-                      onPressed: hasSelection ? _copySelectedText : null,
-                      child: const Row(
-                        children: [
-                          Icon(
-                            CupertinoIcons.doc_on_clipboard,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Copy',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    CupertinoButton(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      color: CupertinoColors.systemPurple,
-                      borderRadius: BorderRadius.circular(14),
-                      minimumSize: const Size(28, 28),
-                      onPressed: widget.textBlocks.isEmpty || hasAllSelected
-                          ? null
-                          : _selectAllBlocks,
-                      child: const Row(
-                        children: [
-                          Icon(
-                            CupertinoIcons.checkmark_seal_fill,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Select All',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(24, 24),
-                      onPressed: hasSelection ? _clearSelection : null,
-                      child: Opacity(
-                        opacity: hasSelection ? 1 : 0.3,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            CupertinoIcons.xmark,
-                            color: Colors.white70,
-                            size: 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (widget.debugMode) ...[
-                      const SizedBox(width: 8),
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(24, 24),
-                        onPressed: _showDebugDialog,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            CupertinoIcons.list_bullet_indent,
-                            color: Colors.white70,
-                            size: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  void _scheduleToolbarSizeUpdate(Size size) {
-    final current = _toolbarSize;
-    if (current != null &&
-        (current.width - size.width).abs() < 0.5 &&
-        (current.height - size.height).abs() < 0.5) {
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        _toolbarSize = size;
-      });
-    });
-  }
-
   void _onPanStart(DragStartDetails details) {
-    final blockIndex = _hitTestBlock(details.localPosition);
-    if (blockIndex == null) {
-      _clearSelection();
+    final scenePoint = _sceneFromViewport(details.localPosition);
+    if (scenePoint == null) {
       return;
     }
 
-    final anchor = _anchorForPoint(blockIndex, details.localPosition);
+    final blockIndex = _hitTestBlock(scenePoint);
+    if (blockIndex == null) {
+      if (_activeSelections.isNotEmpty) {
+        _clearSelection();
+      }
+      return;
+    }
+
+    final anchor = _anchorForPoint(blockIndex, scenePoint);
     widget.onSelectionStart?.call();
     setState(() {
       _isSelecting = true;
       _baseAnchor = anchor;
       _extentAnchor = anchor;
-      _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _updateSelectionPreview();
+      _recomputeSelections();
     });
     if (_activeSelections.isNotEmpty) {
       HapticFeedback.selectionClick();
@@ -618,18 +876,21 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       return;
     }
 
+    final scenePoint = _sceneFromViewport(details.localPosition);
+    if (scenePoint == null) {
+      return;
+    }
+
     final blockIndex =
-        _hitTestBlock(details.localPosition) ??
-        _nearestBlockIndex(details.localPosition);
+        _hitTestBlock(scenePoint) ?? _nearestBlockIndex(scenePoint);
     if (blockIndex == null) {
       return;
     }
 
-    final anchor = _anchorForPoint(blockIndex, details.localPosition);
+    final anchor = _anchorForPoint(blockIndex, scenePoint);
     setState(() {
       _extentAnchor = anchor;
-      _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _updateSelectionPreview();
+      _recomputeSelections();
     });
   }
 
@@ -654,22 +915,180 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     }
   }
 
+  void _onPanCancel() {
+    if (!_isSelecting) {
+      return;
+    }
+
+    setState(() {
+      _isSelecting = false;
+      if (_activeSelections.isEmpty) {
+        _selectedTextPreview = '';
+      }
+    });
+
+    if (_activeSelections.isNotEmpty) {
+      _notifySelection();
+    } else {
+      _baseAnchor = null;
+      _extentAnchor = null;
+    }
+  }
+
   void _onLongPressStart(LongPressStartDetails details) {
-    final blockIndex = _hitTestBlock(details.localPosition);
+    final scenePoint = _sceneFromGlobal(details.globalPosition);
+    if (scenePoint == null) {
+      return;
+    }
+
+    final blockIndex = _hitTestBlock(scenePoint);
     if (blockIndex == null) {
       return;
     }
 
-    final anchor = _anchorForPoint(blockIndex, details.localPosition);
+    final anchor = _anchorForPoint(blockIndex, scenePoint);
     widget.onSelectionStart?.call();
     setState(() {
       _isSelecting = true;
       _baseAnchor = anchor;
       _extentAnchor = anchor;
-      _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _updateSelectionPreview();
+      _recomputeSelections();
     });
     HapticFeedback.mediumImpact();
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    final scenePoint = _sceneFromGlobal(details.globalPosition);
+    if (scenePoint == null) {
+      return;
+    }
+
+    if (_activeSelections.isNotEmpty && _isScenePointOnHandle(scenePoint)) {
+      return;
+    }
+
+    if (_hitTestBlock(scenePoint) == null && _activeSelections.isNotEmpty) {
+      _clearSelection();
+    }
+  }
+
+  void _handleDoubleTapDown(TapDownDetails details) {
+    _pendingDoubleTapScenePoint = _sceneFromGlobal(details.globalPosition);
+  }
+
+  void _handleDoubleTap() {
+    final Offset? point = _pendingDoubleTapScenePoint;
+    _pendingDoubleTapScenePoint = null;
+    if (point == null) {
+      return;
+    }
+
+    final int? blockIndex = _hitTestBlock(point);
+    if (blockIndex == null) {
+      if (_activeSelections.isNotEmpty) {
+        _clearSelection();
+      }
+      return;
+    }
+
+    _performWordSelection(blockIndex, point);
+  }
+
+  void _performWordSelection(int blockIndex, Offset scenePoint) {
+    final _BlockVisual? visual = _blockVisuals[blockIndex];
+    if (visual == null || visual.characterCount == 0) {
+      return;
+    }
+
+    final _SelectionAnchor anchor = _anchorForPoint(blockIndex, scenePoint);
+    int characterIndex = anchor.position.offset;
+    if (characterIndex >= visual.characterCount) {
+      characterIndex = visual.characterCount - 1;
+    }
+    if (characterIndex < 0) {
+      characterIndex = 0;
+    }
+
+    final TextRange? range = _wordBoundaryAt(visual, characterIndex);
+    if (range == null || range.isCollapsed) {
+      return;
+    }
+
+    widget.onSelectionStart?.call();
+    setState(() {
+      _baseAnchor = _SelectionAnchor(
+        blockIndex,
+        TextPosition(offset: range.start),
+      );
+      _extentAnchor = _SelectionAnchor(
+        blockIndex,
+        TextPosition(offset: range.end),
+      );
+      _isSelecting = false;
+      _recomputeSelections();
+    });
+    if (_activeSelections.isNotEmpty) {
+      HapticFeedback.selectionClick();
+      _notifySelection();
+    }
+  }
+
+  TextRange? _wordBoundaryAt(_BlockVisual visual, int index) {
+    final String text = visual.block.text;
+    final int charCount = visual.characterCount;
+    if (text.isEmpty || charCount == 0) {
+      return null;
+    }
+
+    final int maxIndex = min(text.length - 1, charCount - 1);
+    if (maxIndex < 0) {
+      return null;
+    }
+
+    final int clampedIndex = _clampIndex(index, 0, maxIndex);
+    final _GlyphCategory category = _glyphCategory(text[clampedIndex]);
+    if (category == _GlyphCategory.whitespace) {
+      return null;
+    }
+
+    int start = clampedIndex;
+    while (start > 0 && _glyphCategory(text[start - 1]) == category) {
+      start -= 1;
+    }
+
+    int end = clampedIndex + 1;
+    while (end < text.length &&
+        end < charCount &&
+        _glyphCategory(text[end]) == category) {
+      end += 1;
+    }
+
+    start = _clampIndex(start, 0, charCount);
+    end = _clampIndex(end, 0, charCount);
+
+    if (start == end) {
+      if (end < charCount) {
+        end = _clampIndex(end + 1, 0, charCount);
+      } else if (start > 0) {
+        start = _clampIndex(start - 1, 0, charCount);
+      }
+    }
+
+    if (start >= end) {
+      return null;
+    }
+
+    return TextRange(start: start, end: end);
+  }
+
+  _GlyphCategory _glyphCategory(String character) {
+    if (character.trim().isEmpty) {
+      return _GlyphCategory.whitespace;
+    }
+    if (_wordCharacterPattern.hasMatch(character)) {
+      return _GlyphCategory.word;
+    }
+    return _GlyphCategory.symbol;
   }
 
   _SelectionAnchor _anchorForPoint(int blockIndex, Offset globalPoint) {
@@ -714,8 +1133,16 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         continue;
       }
       final paddedRect = rect.inflate(_characterHitPadding);
-      final dx = _distanceToRange(localPoint.dx, paddedRect.left, paddedRect.right);
-      final dy = _distanceToRange(localPoint.dy, paddedRect.top, paddedRect.bottom);
+      final dx = _distanceToRange(
+        localPoint.dx,
+        paddedRect.left,
+        paddedRect.right,
+      );
+      final dy = _distanceToRange(
+        localPoint.dy,
+        paddedRect.top,
+        paddedRect.bottom,
+      );
       final distance = sqrt(dx * dx + dy * dy);
       if (distance < bestDistance) {
         bestDistance = distance;
@@ -760,6 +1187,36 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     }
 
     return nearestIndex;
+  }
+
+  void _recomputeSelections() {
+    _clampAnchorsToVisuals();
+    _normalizeAnchors();
+    _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
+    _updateSelectionPreview();
+  }
+
+  void _normalizeAnchors() {
+    if (_baseAnchor == null || _extentAnchor == null) {
+      return;
+    }
+
+    final int baseOrder = _blockOrder.indexOf(_baseAnchor!.blockIndex);
+    final int extentOrder = _blockOrder.indexOf(_extentAnchor!.blockIndex);
+    if (baseOrder == -1 || extentOrder == -1) {
+      return;
+    }
+
+    final bool shouldSwap =
+        baseOrder > extentOrder ||
+        (baseOrder == extentOrder &&
+            _extentAnchor!.position.offset < _baseAnchor!.position.offset);
+
+    if (shouldSwap) {
+      final temp = _baseAnchor;
+      _baseAnchor = _extentAnchor;
+      _extentAnchor = temp;
+    }
   }
 
   double _distanceToRange(double value, double min, double max) {
@@ -811,9 +1268,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     }
 
     _blockOrder.sort(_compareBlockIndices);
-    _clampAnchorsToVisuals();
-    _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-    _updateSelectionPreview();
+    _recomputeSelections();
   }
 
   List<_CharacterVisual> _buildCharacterVisuals(
@@ -1098,26 +1553,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     return result;
   }
 
-  bool _isEverythingSelected() {
-    if (_blockVisuals.isEmpty ||
-        _activeSelections.length != _blockVisuals.length) {
-      return false;
-    }
-
-    for (final entry in _activeSelections.entries) {
-      final visual = _blockVisuals[entry.key];
-      if (visual == null) {
-        return false;
-      }
-      final selection = entry.value;
-      if (selection.start != 0 || selection.end != visual.characterCount) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
   void _copySelectedText() {
     final text = _collectSelectionText();
     if (text.isEmpty) {
@@ -1134,41 +1569,16 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     });
   }
 
-  void _selectAllBlocks() {
-    if (_blockOrder.isEmpty) {
-      return;
-    }
-
-    final firstIndex = _blockOrder.first;
-    final lastIndex = _blockOrder.last;
-    final firstVisual = _blockVisuals[firstIndex];
-    final lastVisual = _blockVisuals[lastIndex];
-    if (firstVisual == null || lastVisual == null) {
-      return;
-    }
-
-    widget.onSelectionStart?.call();
-    setState(() {
-      _baseAnchor = _SelectionAnchor(firstIndex, const TextPosition(offset: 0));
-      _extentAnchor = _SelectionAnchor(
-        lastIndex,
-        TextPosition(offset: lastVisual.characterCount),
-      );
-      _activeSelections = _computeSelections(_baseAnchor, _extentAnchor);
-      _updateSelectionPreview();
-    });
-    _notifySelection();
-    HapticFeedback.selectionClick();
-  }
-
   void _clearSelection() {
     setState(() {
       _activeSelections = <int, TextSelection>{};
       _baseAnchor = null;
       _extentAnchor = null;
       _isSelecting = false;
-      _toolbarOffset = Offset.zero;
       _selectedTextPreview = '';
+      _pendingDoubleTapScenePoint = null;
+      _activeHandle = null;
+      _activeHandleTouchOffset = null;
     });
   }
 
@@ -1290,6 +1700,20 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
+  bool _isRenderableRect(Rect rect) {
+    return !rect.isEmpty && rect.width > _epsilon && rect.height > _epsilon;
+  }
+
+  int _clampIndex(int value, int minValue, int maxValue) {
+    if (value < minValue) {
+      return minValue;
+    }
+    if (value > maxValue) {
+      return maxValue;
+    }
+    return value;
+  }
+
   bool _pointInPolygon(List<Offset> polygon, Offset point) {
     if (polygon.length < 3) {
       return false;
@@ -1324,57 +1748,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   bool _roughlyEqualsOffset(Offset a, Offset b) {
     return (a.dx - b.dx).abs() < 0.5 && (a.dy - b.dy).abs() < 0.5;
   }
-
-  Future<void> _showDebugDialog() async {
-    if (!mounted) return;
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Detected Text (${widget.textBlocks.length})'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: widget.textBlocks.isEmpty
-                ? const Text('No text detected.')
-                : ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: widget.textBlocks.length,
-                    separatorBuilder: (context, index) =>
-                        const Divider(height: 16),
-                    itemBuilder: (context, index) {
-                      final block = widget.textBlocks[index];
-                      final confidence = block.confidence.clamp(0, 1);
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            block.text.isEmpty ? '(empty)' : block.text,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Confidence: ${(confidence * 100).toStringAsFixed(1)}%',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 }
 
 class _SelectionAnchor {
@@ -1383,6 +1756,10 @@ class _SelectionAnchor {
   final int blockIndex;
   final TextPosition position;
 }
+
+enum _HandleType { base, extent }
+
+enum _GlyphCategory { whitespace, word, symbol }
 
 class _CharacterVisual {
   const _CharacterVisual({
@@ -1425,17 +1802,222 @@ class _DisplayMetrics {
   final Offset offset;
 }
 
+class _CopyActionButton extends StatelessWidget {
+  const _CopyActionButton({
+    required this.onPressed,
+    required this.accentColor,
+    required this.width,
+    required this.height,
+    required this.anchorAboveSelection,
+    required this.pointerHeight,
+  });
+
+  final VoidCallback onPressed;
+  final Color accentColor;
+  final double width;
+  final double height;
+  final bool anchorAboveSelection;
+  final double pointerHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget body = Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onPressed,
+        child: Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1F2937),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: accentColor.withValues(alpha: 0.24),
+              width: 1.0,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black12,
+                blurRadius: 6,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(CupertinoIcons.doc_on_doc, size: 15, color: Colors.white),
+              const SizedBox(width: 4),
+              const Text(
+                'Copy',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (pointerHeight <= 0) {
+      return Semantics(
+        button: true,
+        label: 'Copy selected text',
+        child: SizedBox(width: width, height: height, child: body),
+      );
+    }
+
+    final Widget pointer = SizedBox(
+      width: 20,
+      height: pointerHeight,
+      child: CustomPaint(
+        painter: _CopyPointerPainter(
+          color: const Color(0xFF1F2937),
+          borderColor: accentColor.withValues(alpha: 0.24),
+          pointingDown: anchorAboveSelection,
+        ),
+      ),
+    );
+
+    final List<Widget> children = anchorAboveSelection
+        ? <Widget>[body, Align(alignment: Alignment.center, child: pointer)]
+        : <Widget>[Align(alignment: Alignment.center, child: pointer), body];
+
+    return Semantics(
+      button: true,
+      label: 'Copy selected text',
+      child: SizedBox(
+        width: width,
+        height: height + pointerHeight,
+        child: Column(mainAxisSize: MainAxisSize.min, children: children),
+      ),
+    );
+  }
+}
+
+class _CopyPointerPainter extends CustomPainter {
+  const _CopyPointerPainter({
+    required this.color,
+    required this.borderColor,
+    required this.pointingDown,
+  });
+
+  final Color color;
+  final Color borderColor;
+  final bool pointingDown;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) {
+      return;
+    }
+
+    final Path path = Path();
+    if (pointingDown) {
+      path.moveTo(0, 0);
+      path.lineTo(size.width / 2, size.height);
+      path.lineTo(size.width, 0);
+    } else {
+      path.moveTo(0, size.height);
+      path.lineTo(size.width / 2, 0);
+      path.lineTo(size.width, size.height);
+    }
+    path.close();
+
+    final Paint fillPaint = Paint()..color = color;
+    canvas.drawPath(path, fillPaint);
+
+    final Paint borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    canvas.drawPath(path, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CopyPointerPainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.borderColor != borderColor ||
+        oldDelegate.pointingDown != pointingDown;
+  }
+}
+
+class _SelectionHandleVisual extends StatelessWidget {
+  const _SelectionHandleVisual({
+    required this.fillColor,
+    required this.borderColor,
+    required this.isStart,
+    required this.circleDiameter,
+    required this.stemHeight,
+    required this.stemWidth,
+  });
+
+  final Color fillColor;
+  final Color borderColor;
+  final bool isStart;
+  final double circleDiameter;
+  final double stemHeight;
+  final double stemWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget circle = Container(
+      width: circleDiameter,
+      height: circleDiameter,
+      decoration: BoxDecoration(
+        color: fillColor,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: borderColor.withValues(alpha: 0.7),
+          width: 1.3,
+        ),
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1)),
+        ],
+      ),
+    );
+
+    final Widget stem = SizedBox(
+      height: stemHeight,
+      child: Align(
+        alignment: Alignment.center,
+        child: Container(
+          width: stemWidth,
+          height: stemHeight,
+          decoration: BoxDecoration(
+            color: borderColor,
+            borderRadius: BorderRadius.circular(stemWidth),
+          ),
+        ),
+      ),
+    );
+
+    final List<Widget> children = isStart
+        ? <Widget>[circle, stem]
+        : <Widget>[stem, circle];
+
+    final double visualWidth = max(circleDiameter, stemWidth * 2);
+
+    return SizedBox(
+      width: visualWidth,
+      child: Column(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
+}
+
 class _EditableBlockPainter extends CustomPainter {
   const _EditableBlockPainter({
     required this.visual,
     required this.showBoundary,
     this.selection,
   });
-
-  static const double _horizontalPadding = 2.5;
-  static const double _verticalPadding = 1.6;
-  static const double _cornerRadius = 4.0;
-  static const double _lineToleranceFactor = 0.7;
 
   final _BlockVisual visual;
   final bool showBoundary;
@@ -1509,7 +2091,7 @@ class _EditableBlockPainter extends CustomPainter {
         .map(
           (rect) => RRect.fromRectAndRadius(
             rect,
-            const Radius.circular(_cornerRadius),
+            Radius.circular(_kHighlightCornerRadius),
           ),
         )
         .toList(growable: false);
@@ -1517,10 +2099,10 @@ class _EditableBlockPainter extends CustomPainter {
 
   Rect _inflateRect(Rect rect) {
     return Rect.fromLTRB(
-      rect.left - _horizontalPadding,
-      rect.top - _verticalPadding,
-      rect.right + _horizontalPadding,
-      rect.bottom + _verticalPadding,
+      rect.left - _kHighlightHorizontalPadding,
+      rect.top - _kHighlightVerticalPadding,
+      rect.right + _kHighlightHorizontalPadding,
+      rect.bottom + _kHighlightVerticalPadding,
     );
   }
 
@@ -1537,7 +2119,7 @@ class _EditableBlockPainter extends CustomPainter {
     final double verticalDiff = (a.center.dy - b.center.dy).abs();
     final double maxHeight = max(a.height, b.height);
     final double effectiveHeight = max(maxHeight, 1.0);
-    return verticalDiff <= effectiveHeight * _lineToleranceFactor;
+    return verticalDiff <= effectiveHeight * _kHighlightLineToleranceFactor;
   }
 
   @override
