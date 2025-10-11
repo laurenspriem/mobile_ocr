@@ -579,8 +579,25 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       ),
     ];
 
+    final ThemeData theme = Theme.of(context);
+    final ThemeData toolbarTheme = theme.copyWith(
+      colorScheme: theme.colorScheme.copyWith(
+        surface: Colors.black,
+        onSurface: Colors.white,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: Colors.white),
+      ),
+    );
+
     return Positioned.fill(
-      child: AdaptiveTextSelectionToolbar(anchors: anchors, children: buttons),
+      child: Theme(
+        data: toolbarTheme,
+        child: AdaptiveTextSelectionToolbar(
+          anchors: anchors,
+          children: buttons,
+        ),
+      ),
     );
   }
 

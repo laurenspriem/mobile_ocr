@@ -7,6 +7,9 @@ import 'package:mobile_ocr/mobile_ocr_plugin.dart';
 import 'package:mobile_ocr/models/text_block.dart';
 import 'package:mobile_ocr/widgets/text_overlay_widget.dart';
 
+const Color _entePrimaryColor = Color(0xFF1DB954);
+const double _enteSelectionHighlightOpacity = 0.28;
+
 /// A complete text detection widget that displays an image and allows
 /// users to select and copy detected text.
 class TextDetectorWidget extends StatefulWidget {
@@ -370,21 +373,15 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
     }
 
     if (_detectedTextBlocks != null) {
-      final ThemeData theme = Theme.of(context);
       final TextSelectionThemeData baseSelectionTheme = TextSelectionTheme.of(
         context,
       );
-      final Color handleColor =
-          baseSelectionTheme.selectionHandleColor ?? theme.colorScheme.primary;
-      final double overlayOpacity = handleColor.opacity == 1.0
-          ? 0.28
-          : handleColor.opacity;
       final TextSelectionThemeData overlaySelectionTheme = baseSelectionTheme
           .copyWith(
-            selectionColor:
-                baseSelectionTheme.selectionColor ??
-                handleColor.withOpacity(overlayOpacity),
-            selectionHandleColor: handleColor,
+            selectionColor: _entePrimaryColor.withOpacity(
+              _enteSelectionHighlightOpacity,
+            ),
+            selectionHandleColor: _entePrimaryColor,
           );
 
       return TextSelectionTheme(
