@@ -145,14 +145,16 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
         })
         .catchError((error, _) {
           final errorStr = error.toString().toLowerCase();
-          _isNetworkError = errorStr.contains('network') ||
+          _isNetworkError =
+              errorStr.contains('network') ||
               errorStr.contains('connection') ||
               errorStr.contains('timeout') ||
               errorStr.contains('failed to download') ||
               errorStr.contains('http');
 
           if (_isNetworkError) {
-            _errorMessage = 'Network connection required to download OCR models on first use';
+            _errorMessage =
+                'Network connection required to download OCR models on first use';
           } else {
             _errorMessage = 'Could not prepare OCR models';
           }
@@ -199,7 +201,9 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
         setState(() {
           // Show user-friendly message based on error type
           final errorStr = e.toString().toLowerCase();
-          if (errorStr.contains('image') && errorStr.contains('not') && errorStr.contains('exist')) {
+          if (errorStr.contains('image') &&
+              errorStr.contains('not') &&
+              errorStr.contains('exist')) {
             _errorMessage = 'Image file not found';
           } else if (errorStr.contains('failed to decode')) {
             _errorMessage = 'Could not read image file';
@@ -272,14 +276,14 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
                   : _buildErrorBanner(_errorMessage!),
             ),
           // Show subtle message when no text was detected
-          if (_detectedTextBlocks != null && _detectedTextBlocks!.isEmpty && _errorMessage == null)
+          if (_detectedTextBlocks != null &&
+              _detectedTextBlocks!.isEmpty &&
+              _errorMessage == null)
             Positioned(
               top: 100,
               left: 0,
               right: 0,
-              child: Center(
-                child: _buildNoTextMessage(),
-              ),
+              child: Center(child: _buildNoTextMessage()),
             ),
         ],
       ),
@@ -366,15 +370,35 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
     }
 
     if (_detectedTextBlocks != null) {
-      return TextOverlayWidget(
-        imageFile: _imageFile!,
-        textBlocks: _detectedTextBlocks!,
-        onTextBlocksSelected: widget.onTextBlocksSelected,
-        onTextCopied: widget.onTextCopied,
-        onSelectionStart: _dismissEditorHint,
-        showUnselectedBoundaries: widget.showUnselectedBoundaries,
-        enableSelectionPreview: widget.enableSelectionPreview,
-        debugMode: widget.debugMode,
+      final ThemeData theme = Theme.of(context);
+      final TextSelectionThemeData baseSelectionTheme = TextSelectionTheme.of(
+        context,
+      );
+      final Color handleColor =
+          baseSelectionTheme.selectionHandleColor ?? theme.colorScheme.primary;
+      final double overlayOpacity = handleColor.opacity == 1.0
+          ? 0.28
+          : handleColor.opacity;
+      final TextSelectionThemeData overlaySelectionTheme = baseSelectionTheme
+          .copyWith(
+            selectionColor:
+                baseSelectionTheme.selectionColor ??
+                handleColor.withOpacity(overlayOpacity),
+            selectionHandleColor: handleColor,
+          );
+
+      return TextSelectionTheme(
+        data: overlaySelectionTheme,
+        child: TextOverlayWidget(
+          imageFile: _imageFile!,
+          textBlocks: _detectedTextBlocks!,
+          onTextBlocksSelected: widget.onTextBlocksSelected,
+          onTextCopied: widget.onTextCopied,
+          onSelectionStart: _dismissEditorHint,
+          showUnselectedBoundaries: widget.showUnselectedBoundaries,
+          enableSelectionPreview: widget.enableSelectionPreview,
+          debugMode: widget.debugMode,
+        ),
       );
     }
 

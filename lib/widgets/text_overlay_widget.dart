@@ -44,16 +44,21 @@ class TextOverlayWidget extends StatefulWidget {
 class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   static const double _epsilon = 1e-6;
   static const double _characterHitPadding = 3.0;
-  static const double _handleHeadDiameter = 20.0;
-  static const double _handlePointerHeight = 12.0;
-  static const double _handlePointerWidth = 16.0;
   static const double _handleHitboxExtent = 44.0;
-  static const double _toolbarWidth = 192.0;
-  static const double _toolbarHeight = 44.0;
   static const double _toolbarMinVerticalSpacing = 24.0;
-  static const double _toolbarHandleClearance = 8.0;
-  static const Color _handleFillColor = Color(0xFF2563EB);
-  static const Color _handleStrokeColor = Color(0xFF2563EB);
+  static const double _kMaterialTextLineHeight = 20.0;
+  static final TextSelectionControls _selectionControls =
+      MaterialTextSelectionControls();
+  static final Size _handleVisualSize = _selectionControls.getHandleSize(
+    _kMaterialTextLineHeight,
+  );
+
+  static double get _handleVisualHeight => _handleVisualSize.height;
+  static double get _handleVisualWidth => _handleVisualSize.width;
+  static double get _handleHorizontalPadding =>
+      (_handleHitboxExtent - _handleVisualWidth) / 2;
+  static double get _handleVerticalPadding =>
+      (_handleHitboxExtent - _handleVisualHeight) / 2;
   static final RegExp _wordCharacterPattern = RegExp(
     r'[\p{L}\p{N}]',
     unicode: true,
@@ -357,12 +362,31 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     });
   }
 
+  Color _handleColor(BuildContext context) {
+    final TextSelectionThemeData theme = TextSelectionTheme.of(context);
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return theme.selectionHandleColor ?? scheme.primary;
+  }
+
+  Color _selectionHighlightColor(BuildContext context) {
+    final TextSelectionThemeData theme = TextSelectionTheme.of(context);
+    final Color? selectionColor = theme.selectionColor;
+    if (selectionColor != null) {
+      return selectionColor;
+    }
+    final Color base = _handleColor(context);
+    final double targetOpacity = base.opacity == 1.0 ? 0.28 : base.opacity;
+    final double clampedOpacity = targetOpacity.clamp(0.2, 0.35) as double;
+    return base.withOpacity(clampedOpacity);
+  }
+
   List<Widget> _buildEditableBlockOverlays() {
     if (_displaySize == null || _imageSize == null || _displayOffset == null) {
       return const [];
     }
 
     final List<Widget> overlays = <Widget>[];
+    final Color selectionColor = _selectionHighlightColor(context);
     for (final index in _blockOrder) {
       final visual = _blockVisuals[index];
       if (visual == null) {
@@ -381,6 +405,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
                 visual: visual,
                 selection: _activeSelections[index],
                 showBoundary: widget.showUnselectedBoundaries,
+                selectionColor: selectionColor,
               ),
             ),
           ),
@@ -482,10 +507,11 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       if (anchorPoint == null) {
         return;
       }
-      final double candidate = isStart
-          ? anchorPoint.dy - (_handleHeadDiameter + _handlePointerHeight)
-          : anchorPoint.dy;
-      top = top == null ? candidate : min(top!, candidate);
+      final TextSelectionHandleType type = isStart
+          ? TextSelectionHandleType.left
+          : TextSelectionHandleType.right;
+      final Rect rect = _handleVisualRectForAnchor(anchorPoint, type);
+      top = top == null ? rect.top : min(top!, rect.top);
     }
 
     accumulate(_baseAnchor, isStart: true);
@@ -503,10 +529,11 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       if (anchorPoint == null) {
         return;
       }
-      final double candidate = isStart
-          ? anchorPoint.dy
-          : anchorPoint.dy + (_handleHeadDiameter + _handlePointerHeight);
-      bottom = bottom == null ? candidate : max(bottom!, candidate);
+      final TextSelectionHandleType type = isStart
+          ? TextSelectionHandleType.left
+          : TextSelectionHandleType.right;
+      final Rect rect = _handleVisualRectForAnchor(anchorPoint, type);
+      bottom = bottom == null ? rect.bottom : max(bottom!, rect.bottom);
     }
 
     accumulate(_baseAnchor, isStart: true);
@@ -526,78 +553,34 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
 
     final double spacing = max(
       _toolbarMinVerticalSpacing,
-      _handleHeadDiameter + _handlePointerHeight + 12.0,
+      _handleVisualHeight + 12.0,
     );
-    const double totalHeight = _toolbarHeight;
+    final double anchorAboveY = selectionBounds.top - spacing;
+    final double anchorBelowY = selectionBounds.bottom + spacing;
 
-    double left = selectionBounds.center.dx - (_toolbarWidth / 2);
-    if (constraints.hasBoundedWidth) {
-      final double minLeft = 8.0;
-      final double maxLeft = max(
-        minLeft,
-        constraints.maxWidth - _toolbarWidth - 8.0,
-      );
-      left = left.clamp(minLeft, maxLeft);
-    }
+    final TextSelectionToolbarAnchors anchors = TextSelectionToolbarAnchors(
+      primaryAnchor: Offset(selectionBounds.center.dx, anchorAboveY),
+      secondaryAnchor: Offset(selectionBounds.center.dx, anchorBelowY),
+    );
 
-    double? minTop;
-    double? maxTop;
-    if (constraints.hasBoundedHeight) {
-      minTop = 8.0;
-      maxTop = max(minTop, constraints.maxHeight - totalHeight - 8.0);
-    }
-
-    double? placeAbove() {
-      double candidate = selectionBounds.top - spacing - totalHeight;
-      if (minTop != null) {
-        candidate = max(candidate, minTop);
-      }
-      if (maxTop != null) {
-        candidate = min(candidate, maxTop);
-      }
-      final double? handleTop = _selectionHandleVisualTop();
-      if (handleTop != null &&
-          candidate + totalHeight > handleTop - _toolbarHandleClearance) {
-        return null;
-      }
-      return candidate;
-    }
-
-    double? placeBelow() {
-      double candidate = selectionBounds.bottom + spacing;
-      if (minTop != null) {
-        candidate = max(candidate, minTop);
-      }
-      final double? handleBottom = _selectionHandleVisualBottom();
-      if (handleBottom != null) {
-        candidate = max(candidate, handleBottom + _toolbarHandleClearance);
-      }
-      if (maxTop != null && candidate > maxTop) {
-        return null;
-      }
-      return candidate;
-    }
-
-    double? top = placeAbove();
-    top ??= placeBelow();
-    top ??= selectionBounds.top - spacing - totalHeight;
-
-    if (minTop != null && top < minTop) {
-      top = minTop;
-    }
-    if (maxTop != null && top > maxTop) {
-      top = maxTop;
-    }
-
-    return Positioned(
-      left: left,
-      top: top,
-      width: _toolbarWidth,
-      height: totalHeight,
-      child: _SelectionToolbar(
-        onCopy: _copySelectedText,
-        onSelectAll: _selectAllText,
+    final MaterialLocalizations localizations = MaterialLocalizations.of(
+      context,
+    );
+    final List<Widget> buttons = <Widget>[
+      TextSelectionToolbarTextButton(
+        padding: TextSelectionToolbarTextButton.getPadding(0, 2),
+        onPressed: _copySelectedText,
+        child: Text(localizations.copyButtonLabel),
       ),
+      TextSelectionToolbarTextButton(
+        padding: TextSelectionToolbarTextButton.getPadding(1, 2),
+        onPressed: _selectAllText,
+        child: Text(localizations.selectAllButtonLabel),
+      ),
+    ];
+
+    return Positioned.fill(
+      child: AdaptiveTextSelectionToolbar(anchors: anchors, children: buttons),
     );
   }
 
@@ -605,16 +588,16 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     required Offset anchorPoint,
     required bool isStart,
   }) {
-    final double left = anchorPoint.dx - (_handleHitboxExtent / 2);
-    final double top = isStart
-        ? anchorPoint.dy - _handleHitboxExtent
-        : anchorPoint.dy;
+    final TextSelectionHandleType handleType = isStart
+        ? TextSelectionHandleType.left
+        : TextSelectionHandleType.right;
+    final Rect hitbox = _handleHitboxRectForAnchor(anchorPoint, handleType);
 
     return Positioned(
-      left: left,
-      top: top,
-      width: _handleHitboxExtent,
-      height: _handleHitboxExtent,
+      left: hitbox.left,
+      top: hitbox.top,
+      width: hitbox.width,
+      height: hitbox.height,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onPanStart: (details) => _onHandlePanStart(
@@ -624,18 +607,55 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         onPanUpdate: _onHandlePanUpdate,
         onPanEnd: (_) => _onHandlePanEnd(),
         onPanCancel: _onHandlePanCancel,
-        child: Align(
-          alignment: isStart ? Alignment.bottomCenter : Alignment.topCenter,
-          child: _SelectionHandleVisual(
-            fillColor: _handleFillColor,
-            borderColor: _handleStrokeColor,
-            isStart: isStart,
-            headDiameter: _handleHeadDiameter,
-            pointerHeight: _handlePointerHeight,
-            pointerWidth: _handlePointerWidth,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: _handleHorizontalPadding,
+            vertical: _handleVerticalPadding,
+          ),
+          child: _selectionControls.buildHandle(
+            context,
+            handleType,
+            _kMaterialTextLineHeight,
           ),
         ),
       ),
+    );
+  }
+
+  Rect _handleVisualRectForAnchor(
+    Offset anchorPoint,
+    TextSelectionHandleType type,
+  ) {
+    final Offset handleAnchor = _selectionControls.getHandleAnchor(
+      type,
+      _kMaterialTextLineHeight,
+    );
+    final Offset topLeft = anchorPoint - handleAnchor;
+    return Rect.fromLTWH(
+      topLeft.dx,
+      topLeft.dy,
+      _handleVisualWidth,
+      _handleVisualHeight,
+    );
+  }
+
+  Rect _handleHitboxRectForAnchor(
+    Offset anchorPoint,
+    TextSelectionHandleType type,
+  ) {
+    final Offset handleAnchor = _selectionControls.getHandleAnchor(
+      type,
+      _kMaterialTextLineHeight,
+    );
+    final Offset hitboxTopLeft =
+        anchorPoint -
+        handleAnchor -
+        Offset(_handleHorizontalPadding, _handleVerticalPadding);
+    return Rect.fromLTWH(
+      hitboxTopLeft.dx,
+      hitboxTopLeft.dy,
+      _handleHitboxExtent,
+      _handleHitboxExtent,
     );
   }
 
@@ -656,11 +676,9 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
 
     final Offset? startPoint = _handleAnchorPoint(_baseAnchor!, isStart: true);
     if (startPoint != null) {
-      final Rect startRect = Rect.fromLTWH(
-        startPoint.dx - (_handleHitboxExtent / 2),
-        startPoint.dy - _handleHitboxExtent,
-        _handleHitboxExtent,
-        _handleHitboxExtent,
+      final Rect startRect = _handleHitboxRectForAnchor(
+        startPoint,
+        TextSelectionHandleType.left,
       );
       if (startRect.contains(scenePoint)) {
         return true;
@@ -669,11 +687,9 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
 
     final Offset? endPoint = _handleAnchorPoint(_extentAnchor!, isStart: false);
     if (endPoint != null) {
-      final Rect endRect = Rect.fromLTWH(
-        endPoint.dx - (_handleHitboxExtent / 2),
-        endPoint.dy,
-        _handleHitboxExtent,
-        _handleHitboxExtent,
+      final Rect endRect = _handleHitboxRectForAnchor(
+        endPoint,
+        TextSelectionHandleType.right,
       );
       if (endRect.contains(scenePoint)) {
         return true;
@@ -1530,12 +1546,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       maxV = mid + _kGeometryEpsilon;
     }
 
-    return _OrientedBounds(
-      minU: minU,
-      maxU: maxU,
-      minV: minV,
-      maxV: maxV,
-    );
+    return _OrientedBounds(minU: minU, maxU: maxU, minV: minV, maxV: maxV);
   }
 
   List<Offset> _getScaledCharacterPoints(CharacterBox character) {
@@ -1974,11 +1985,11 @@ class _OrientedBounds {
   Rect toRect() => Rect.fromLTRB(minU, minV, maxU, maxV);
 
   Rect inflate(double horizontal, double vertical) => Rect.fromLTRB(
-        minU - horizontal,
-        minV - vertical,
-        maxU + horizontal,
-        maxV + vertical,
-      );
+    minU - horizontal,
+    minV - vertical,
+    maxU + horizontal,
+    maxV + vertical,
+  );
 }
 
 class _OrientedGeometry {
@@ -2040,8 +2051,8 @@ class _OrientedGeometry {
     }
 
     Offset axisY = Offset(-axisX.dy, axisX.dx);
-    final Offset centroid = polygon.reduce((a, b) => a + b) /
-        polygon.length.toDouble();
+    final Offset centroid =
+        polygon.reduce((a, b) => a + b) / polygon.length.toDouble();
     final Offset toCentroid = centroid - basePoint;
     if (toCentroid.dx * axisY.dx + toCentroid.dy * axisY.dy < 0) {
       axisY = Offset(-axisY.dx, -axisY.dy);
@@ -2133,255 +2144,17 @@ class _DisplayMetrics {
   final Offset offset;
 }
 
-class _SelectionToolbar extends StatelessWidget {
-  const _SelectionToolbar({required this.onCopy, required this.onSelectAll});
-
-  final VoidCallback onCopy;
-  final VoidCallback onSelectAll;
-
-  @override
-  Widget build(BuildContext context) {
-    const Color background = Color(0xFF1F2937);
-    final BorderRadius radius = BorderRadius.circular(22);
-
-    return Semantics(
-      container: true,
-      label: 'Text selection actions',
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: radius,
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 12,
-              offset: Offset(0, 6),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: Material(
-            color: Colors.transparent,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  _ToolbarActionButton(
-                    label: 'Copy',
-                    semanticLabel: 'Copy selected text',
-                    onTap: onCopy,
-                  ),
-                  Container(
-                    width: 1,
-                    height: double.infinity,
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                  _ToolbarActionButton(
-                    label: 'Select all',
-                    semanticLabel: 'Select all text',
-                    onTap: onSelectAll,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ToolbarActionButton extends StatelessWidget {
-  const _ToolbarActionButton({
-    required this.label,
-    required this.semanticLabel,
-    required this.onTap,
-  });
-
-  final String label;
-  final String semanticLabel;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Semantics(
-        button: true,
-        label: semanticLabel,
-        child: InkWell(
-          onTap: onTap,
-          splashColor: Colors.white.withValues(alpha: 0.08),
-          highlightColor: Colors.white.withValues(alpha: 0.05),
-          child: SizedBox(
-            height: double.infinity,
-            child: Center(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SelectionHandleVisual extends StatelessWidget {
-  const _SelectionHandleVisual({
-    required this.fillColor,
-    required this.borderColor,
-    required this.isStart,
-    required this.headDiameter,
-    required this.pointerHeight,
-    required this.pointerWidth,
-  });
-
-  final Color fillColor;
-  final Color borderColor;
-  final bool isStart;
-  final double headDiameter;
-  final double pointerHeight;
-  final double pointerWidth;
-
-  @override
-  Widget build(BuildContext context) {
-    final double visualWidth = max(headDiameter, pointerWidth);
-    final double visualHeight = headDiameter + pointerHeight;
-
-    return SizedBox(
-      width: visualWidth,
-      height: visualHeight,
-      child: CustomPaint(
-        painter: _SelectionHandlePainter(
-          fillColor: fillColor,
-          borderColor: borderColor,
-          isStart: isStart,
-          headDiameter: headDiameter,
-          pointerHeight: pointerHeight,
-          pointerWidth: pointerWidth,
-        ),
-      ),
-    );
-  }
-}
-
-class _SelectionHandlePainter extends CustomPainter {
-  const _SelectionHandlePainter({
-    required this.fillColor,
-    required this.borderColor,
-    required this.isStart,
-    required this.headDiameter,
-    required this.pointerHeight,
-    required this.pointerWidth,
-  });
-
-  final Color fillColor;
-  final Color borderColor;
-  final bool isStart;
-  final double headDiameter;
-  final double pointerHeight;
-  final double pointerWidth;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final double radius = headDiameter / 2;
-    final double usableRadius = radius <= 0.1 ? 0.1 : radius;
-    final double extent = pointerHeight < 0 ? 0 : pointerHeight;
-
-    double pointerHalfWidth = pointerWidth <= 0
-        ? usableRadius * 0.6
-        : pointerWidth / 2;
-    final double minHalfWidth = usableRadius * 0.5;
-    final double maxHalfWidth = usableRadius * 0.95;
-    pointerHalfWidth = pointerHalfWidth.clamp(minHalfWidth, maxHalfWidth);
-
-    final double angleOffset = pointerHalfWidth >= usableRadius
-        ? pi / 2 - 0.01
-        : asin(pointerHalfWidth / usableRadius);
-
-    final double centerY = isStart ? usableRadius : size.height - usableRadius;
-    final Offset circleCenter = Offset(size.width / 2, centerY);
-
-    final double baseAngle = isStart ? pi / 2 : 3 * pi / 2;
-    final Offset baseA = Offset(
-      circleCenter.dx + usableRadius * cos(baseAngle - angleOffset),
-      circleCenter.dy + usableRadius * sin(baseAngle - angleOffset),
-    );
-    final Offset baseB = Offset(
-      circleCenter.dx + usableRadius * cos(baseAngle + angleOffset),
-      circleCenter.dy + usableRadius * sin(baseAngle + angleOffset),
-    );
-
-    final List<Offset> basePoints = <Offset>[baseA, baseB]
-      ..sort((a, b) => a.dx.compareTo(b.dx));
-    final Offset leftBase = basePoints.first;
-    final Offset rightBase = basePoints.last;
-
-    final Offset pointerTip = isStart
-        ? Offset(circleCenter.dx, circleCenter.dy + usableRadius + extent)
-        : Offset(circleCenter.dx, circleCenter.dy - usableRadius - extent);
-
-    final Path circlePath = Path()
-      ..addOval(Rect.fromCircle(center: circleCenter, radius: usableRadius));
-    final double pointerDirection = isStart ? 1.0 : -1.0;
-    final double controlYOffset = usableRadius + extent * 0.45;
-    final Offset controlPoint = Offset(
-      circleCenter.dx,
-      circleCenter.dy + pointerDirection * controlYOffset,
-    );
-
-    final Path pointerPath = Path()
-      ..moveTo(leftBase.dx, leftBase.dy)
-      ..quadraticBezierTo(
-        controlPoint.dx,
-        controlPoint.dy,
-        pointerTip.dx,
-        pointerTip.dy,
-      )
-      ..quadraticBezierTo(
-        controlPoint.dx,
-        controlPoint.dy,
-        rightBase.dx,
-        rightBase.dy,
-      )
-      ..close();
-    final Path handlePath = Path.combine(
-      PathOperation.union,
-      circlePath,
-      pointerPath,
-    );
-
-    final Paint fillPaint = Paint()..color = fillColor;
-    canvas.drawPath(handlePath, fillPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SelectionHandlePainter oldDelegate) {
-    return oldDelegate.fillColor != fillColor ||
-        oldDelegate.borderColor != borderColor ||
-        oldDelegate.isStart != isStart ||
-        oldDelegate.headDiameter != headDiameter ||
-        oldDelegate.pointerHeight != pointerHeight ||
-        oldDelegate.pointerWidth != pointerWidth;
-  }
-}
-
 class _EditableBlockPainter extends CustomPainter {
   const _EditableBlockPainter({
     required this.visual,
     required this.showBoundary,
+    required this.selectionColor,
     this.selection,
   });
 
   final _BlockVisual visual;
   final bool showBoundary;
+  final Color selectionColor;
   final TextSelection? selection;
 
   @override
@@ -2401,7 +2174,7 @@ class _EditableBlockPainter extends CustomPainter {
       if (start < end) {
         final highlightPaint = Paint()
           ..style = PaintingStyle.fill
-          ..color = CupertinoColors.activeBlue.withValues(alpha: 0.32);
+          ..color = selectionColor;
         final selected = <_CharacterVisual>[];
         for (int index = start; index < end; index++) {
           if (index >= visual.characters.length) break;
@@ -2453,10 +2226,7 @@ class _EditableBlockPainter extends CustomPainter {
     final Path path = Path();
     for (final rect in merged) {
       path.addRRect(
-        RRect.fromRectAndRadius(
-          rect,
-          Radius.circular(_kHighlightCornerRadius),
-        ),
+        RRect.fromRectAndRadius(rect, Radius.circular(_kHighlightCornerRadius)),
       );
     }
 
