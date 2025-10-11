@@ -22,31 +22,63 @@ class TextDetector(
     }
 
     fun detect(bitmap: Bitmap): List<TextBox> {
+        val boxes = mutableListOf<TextBox>()
+        runDetection(bitmap) { box, _ ->
+            boxes.add(box)
+            false
+        }
+
+        if (boxes.isEmpty()) {
+            return emptyList()
+        }
+
+        return sortBoxes(boxes)
+    }
+
+    fun hasHighConfidenceDetection(
+        bitmap: Bitmap,
+        minimumDetectionConfidence: Float
+    ): Boolean {
+        var found = false
+        runDetection(bitmap) { _, score ->
+            if (score >= minimumDetectionConfidence) {
+                found = true
+                true
+            } else {
+                false
+            }
+        }
+        return found
+    }
+
+    private fun runDetection(
+        bitmap: Bitmap,
+        handler: (TextBox, Float) -> Boolean
+    ) {
         val originalWidth = bitmap.width
         val originalHeight = bitmap.height
 
-        // Preprocess image
         val (inputTensor, resizedWidth, resizedHeight) = preprocessImage(bitmap)
 
-        // Run inference
-        val inputs = mapOf("x" to inputTensor)
-        val outputs = session.run(inputs)
-        val output = outputs[0] as OnnxTensor
+        var output: OnnxTensor? = null
+        try {
+            val inputs = mapOf("x" to inputTensor)
+            output = session.run(inputs)[0] as OnnxTensor
 
-        // Postprocess to get boxes
-        val boxes = postprocessDetection(
-            output,
-            originalWidth,
-            originalHeight,
-            resizedWidth,
-            resizedHeight
-        )
-
-        output.close()
-        inputTensor.close()
-
-        return boxes
+            postprocessDetection(
+                output = output,
+                originalWidth = originalWidth,
+                originalHeight = originalHeight,
+                resizedWidth = resizedWidth,
+                resizedHeight = resizedHeight,
+                handler = handler
+            )
+        } finally {
+            output?.close()
+            inputTensor.close()
+        }
     }
+
 
     private fun preprocessImage(bitmap: Bitmap): Triple<OnnxTensor, Int, Int> {
         val originalWidth = bitmap.width
@@ -115,8 +147,9 @@ class TextDetector(
         originalWidth: Int,
         originalHeight: Int,
         resizedWidth: Int,
-        resizedHeight: Int
-    ): List<TextBox> {
+        resizedHeight: Int,
+        handler: (TextBox, Float) -> Boolean
+    ) {
         val outputArray = output.floatBuffer.array()
         val probMap = Array(resizedHeight) { FloatArray(resizedWidth) }
 
@@ -138,11 +171,10 @@ class TextDetector(
         val components = extractConnectedComponents(binaryMap)
             .sortedByDescending { it.size }
             .take(MAX_CANDIDATES)
-        val boxes = mutableListOf<TextBox>()
         val scaleX = originalWidth.toFloat() / resizedWidth
         val scaleY = originalHeight.toFloat() / resizedHeight
 
-        for (component in components) {
+        componentLoop@ for (component in components) {
             if (component.size < 4) continue
 
             val hull = convexHull(component)
@@ -170,10 +202,11 @@ class TextDetector(
             }
 
             val orderedPoints = ImageUtils.orderPointsClockwise(scaledPoints)
-            boxes.add(TextBox(orderedPoints))
+            val shouldBreak = handler(TextBox(orderedPoints), score)
+            if (shouldBreak) {
+                break@componentLoop
+            }
         }
-
-        return sortBoxes(boxes)
     }
     private fun extractConnectedComponents(binaryMap: Array<BooleanArray>): List<List<PointF>> {
         val height = binaryMap.size

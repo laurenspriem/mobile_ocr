@@ -39,6 +39,19 @@ class MobileOcr {
     );
     return results.map(TextBlock.fromMap).toList(growable: false);
   }
+
+  /// Quickly determine whether the image contains high-confidence text.
+  ///
+  /// Returns `true` if at least one detected text block has confidence >= 0.9.
+  /// Only the detection stage runs, making this faster than full recognition.
+  Future<bool> hasText({required String imagePath}) async {
+    final file = File(imagePath);
+    if (!file.existsSync()) {
+      throw ArgumentError('Image file does not exist at path: $imagePath');
+    }
+
+    return MobileOcrPlatform.instance.hasText(imagePath: file.path);
+  }
 }
 
 /// Describes the current preparation status of the native OCR model cache.

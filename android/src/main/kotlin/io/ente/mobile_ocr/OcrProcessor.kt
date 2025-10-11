@@ -198,6 +198,14 @@ class OcrProcessor(
         return processor.detect(bitmap)
     }
 
+    fun hasHighConfidenceText(
+        bitmap: Bitmap,
+        minimumDetectionConfidence: Float = 0.9f
+    ): Boolean {
+        val processor = TextDetector(detectionSession, ortEnv)
+        return processor.hasHighConfidenceDetection(bitmap, minimumDetectionConfidence)
+    }
+
     private fun cropTextRegion(bitmap: Bitmap, box: TextBox): Bitmap {
         val orderedPoints = ImageUtils.orderPointsClockwise(box.points)
         return ImageUtils.cropTextRegion(bitmap, orderedPoints)

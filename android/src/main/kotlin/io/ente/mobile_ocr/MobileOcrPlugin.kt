@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.withLock
 class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
   companion object {
     private const val TAG = "MobileOcrPlugin"
+    private const val QUICK_DETECTION_MIN_SCORE = 0.9f
   }
 
   private lateinit var channel : MethodChannel
@@ -84,6 +85,25 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
           }
         }
       }
+      "hasText" -> {
+        val imagePath = call.argument<String>("imagePath")
+        if (imagePath.isNullOrBlank()) {
+          result.error("INVALID_ARGUMENT", "Image path is required", null)
+          return
+        }
+
+        mainScope.launch {
+          try {
+            val hasText = withContext(Dispatchers.IO) {
+              hasHighConfidenceText(imagePath, QUICK_DETECTION_MIN_SCORE)
+            }
+            result.success(hasText)
+          } catch (e: Exception) {
+            Log.e(TAG, "Quick detection failed for $imagePath", e)
+            result.error("DETECTION_ERROR", e.message ?: "Could not analyze image", null)
+          }
+        }
+      }
       "getPlatformVersion" -> {
         result.success("Android ${android.os.Build.VERSION.RELEASE}")
       }
@@ -139,6 +159,24 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
         "characters" to characterMaps
       )
     }
+  }
+
+  private suspend fun hasHighConfidenceText(
+    imagePath: String,
+    minDetectionConfidence: Float
+  ): Boolean {
+    val processor = getOrCreateProcessor()
+
+    val file = java.io.File(imagePath)
+    if (!file.exists()) {
+      throw IllegalArgumentException("Image file does not exist at path: $imagePath")
+    }
+
+    val bitmap = BitmapFactory.decodeFile(imagePath)
+      ?: throw IllegalArgumentException("Failed to decode image at path: $imagePath")
+    val correctedBitmap = applyExifOrientation(bitmap, imagePath)
+
+    return processor.hasHighConfidenceText(correctedBitmap, minDetectionConfidence)
   }
 
   private fun applyExifOrientation(source: Bitmap, imagePath: String): Bitmap {

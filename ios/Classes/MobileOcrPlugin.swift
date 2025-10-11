@@ -23,6 +23,8 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             ])
         case "detectText":
             handleTextDetection(call: call, result: result)
+        case "hasText":
+            handleQuickTextCheck(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -43,6 +45,21 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         detectTextInImage(imagePath: imagePath,
                          minConfidence: minConfidence,
                          result: result)
+    }
+
+    private func handleQuickTextCheck(call: FlutterMethodCall,
+                                      result: @escaping FlutterResult) {
+        guard let arguments = call.arguments as? [String: Any],
+              let imagePath = arguments["imagePath"] as? String else {
+            result(FlutterError(code: "INVALID_ARGUMENTS",
+                               message: "Image path is required",
+                               details: nil))
+            return
+        }
+
+        quickDetectText(imagePath: imagePath,
+                        minConfidence: 0.9,
+                        result: result)
     }
 
     private func detectTextInImage(imagePath: String,
@@ -222,6 +239,67 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             // Return results on main thread
             DispatchQueue.main.async {
                 result(detectedTexts)
+            }
+        }
+    }
+
+    private func quickDetectText(imagePath: String,
+                                 minConfidence: Float,
+                                 result: @escaping FlutterResult) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let image = UIImage(contentsOfFile: imagePath) else {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "IMAGE_LOAD_ERROR",
+                                       message: "Failed to load image from path",
+                                       details: nil))
+                }
+                return
+            }
+
+            let fixedImage = self.fixImageOrientation(image)
+
+            guard let cgImage = fixedImage.cgImage else {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "IMAGE_LOAD_ERROR",
+                                       message: "Failed to get CGImage",
+                                       details: nil))
+                }
+                return
+            }
+
+            let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            var hasHighConfidenceText = false
+
+            let request = VNDetectTextRectanglesRequest { (request, error) in
+                if let error = error {
+                    print("Text detection error: \(error.localizedDescription)")
+                    return
+                }
+
+                guard let observations = request.results as? [VNTextObservation] else {
+                    return
+                }
+
+                hasHighConfidenceText = observations.contains { observation in
+                    return observation.confidence >= minConfidence
+                }
+            }
+
+            request.reportCharacterBoxes = false
+
+            do {
+                try requestHandler.perform([request])
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "DETECTION_ERROR",
+                                       message: "Failed to perform text detection",
+                                       details: error.localizedDescription))
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                result(hasHighConfidenceText)
             }
         }
     }

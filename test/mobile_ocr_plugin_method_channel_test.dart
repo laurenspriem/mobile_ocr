@@ -27,6 +27,8 @@ void main() {
                   ],
                 },
               ];
+            case 'hasText':
+              return true;
             default:
               return null;
           }
@@ -50,5 +52,10 @@ void main() {
     expect(results, hasLength(1));
     expect(results.first['text'], 'hello');
     expect(results.first['points'], isNotEmpty);
+  });
+
+  test('hasText returns boolean result', () async {
+    final result = await platform.hasText(imagePath: '/tmp/test.png');
+    expect(result, isTrue);
   });
 }

@@ -46,6 +46,11 @@ final ocrPlugin = MobileOcr();
 // No-op on iOS because Vision ships with the OS.
 await ocrPlugin.prepareModels();
 
+// Optional quick check if the image contains high-confidence text (runs much faster than actual full text recognition)
+final hasText = await ocrPlugin.hasText(
+  imagePath: '/path/to/image.png',
+);
+
 // Perform OCR by supplying an image path
 final textBlocks = await ocrPlugin.detectText(
   imagePath: '/path/to/image.png',
@@ -105,7 +110,7 @@ flutter run
 
 The ONNX models (~20 MB total) are **not** bundled with the plugin. They are hosted at
 `https://models.ente.io/PP-OCRv5/` and downloaded on demand the first time you call
-`prepareModels()`. Files are cached under `context.filesDir/onnx_ocr/PP-OCRv5/` with SHA-256
+`prepareModels()`. Files are cached under `context.filesDir/assets/mobile_ocr/` with SHA-256
 verification so subsequent runs work offline. You can call `prepareModels()` during app launch to
 show a download progress indicator before triggering OCR.
 
@@ -114,12 +119,14 @@ iOS does not require this step because it relies on the built-in Vision framewor
 ## Platform Support
 
 Currently supports:
+
 - ✅ Android (API 24+)
 - ✅ iOS 14+
 
 ## Acknowledgments
 
 This work would not be possible without:
+
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) - The original OCR models and algorithms
 - [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) - ONNX implementation and pipeline architecture
 

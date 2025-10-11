@@ -34,6 +34,12 @@ abstract class MobileOcrPlatform extends PlatformInterface {
     throw UnimplementedError('detectText() has not been implemented.');
   }
 
+  Future<bool> hasText({
+    required String imagePath,
+  }) {
+    throw UnimplementedError('hasText() has not been implemented.');
+  }
+
   Future<Map<dynamic, dynamic>> prepareModels() {
     throw UnimplementedError('prepareModels() has not been implemented.');
   }

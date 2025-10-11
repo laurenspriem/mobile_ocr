@@ -34,6 +34,19 @@ class MethodChannelMobileOcr extends MobileOcrPlatform {
   }
 
   @override
+  Future<bool> hasText({
+    required String imagePath,
+  }) async {
+    final result = await methodChannel.invokeMethod<bool>(
+      'hasText',
+      {
+        'imagePath': imagePath,
+      },
+    );
+    return result ?? false;
+  }
+
+  @override
   Future<Map<dynamic, dynamic>> prepareModels() async {
     final result = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
       'prepareModels',
