@@ -75,13 +75,13 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            // Fix image orientation
+            // Fix image orientation using modern API
             var fixedImage = image
             if image.imageOrientation != .up {
-                UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
-                image.draw(in: CGRect(origin: .zero, size: image.size))
-                fixedImage = UIGraphicsGetImageFromCurrentImageContext()!
-                UIGraphicsEndImageContext()
+                let renderer = UIGraphicsImageRenderer(size: image.size)
+                fixedImage = renderer.image { _ in
+                    image.draw(at: .zero)
+                }
             }
 
             guard let cgImage = fixedImage.cgImage else {
@@ -244,10 +244,10 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
 
             var fixedImage = image
             if image.imageOrientation != .up {
-                UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
-                image.draw(in: CGRect(origin: .zero, size: image.size))
-                fixedImage = UIGraphicsGetImageFromCurrentImageContext()!
-                UIGraphicsEndImageContext()
+                let renderer = UIGraphicsImageRenderer(size: image.size)
+                fixedImage = renderer.image { _ in
+                    image.draw(at: .zero)
+                }
             }
 
             guard let cgImage = fixedImage.cgImage else {
@@ -296,50 +296,4 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         })
     }
 
-    private func fixImageOrientation(_ image: UIImage) -> UIImage {
-        // If image orientation is already correct, return as is
-        if image.imageOrientation == .up {
-            return image
-        }
-
-        // Redraw the image with correct orientation
-        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
-        image.draw(in: CGRect(origin: .zero, size: image.size))
-        let normalizedImage = UIGraphicsGetImageFromCurrentImageContext()!
-        UIGraphicsEndImageContext()
-
-        return normalizedImage
-    }
-
-    private func boundingRect(for pointMaps: [[String: Double]]) -> CGRect? {
-        guard
-            let firstX = pointMaps.first?["x"],
-            let firstY = pointMaps.first?["y"]
-        else {
-            return nil
-        }
-
-        var minX = firstX
-        var maxX = firstX
-        var minY = firstY
-        var maxY = firstY
-
-        for point in pointMaps {
-            guard let x = point["x"], let y = point["y"] else {
-                continue
-            }
-
-            if x < minX { minX = x }
-            if x > maxX { maxX = x }
-            if y < minY { minY = y }
-            if y > maxY { maxY = y }
-        }
-
-        return CGRect(
-            x: CGFloat(minX),
-            y: CGFloat(minY),
-            width: CGFloat(maxX - minX),
-            height: CGFloat(maxY - minY)
-        )
-    }
 }
