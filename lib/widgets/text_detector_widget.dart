@@ -378,8 +378,8 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
       );
       final TextSelectionThemeData overlaySelectionTheme = baseSelectionTheme
           .copyWith(
-            selectionColor: _entePrimaryColor.withOpacity(
-              _enteSelectionHighlightOpacity,
+            selectionColor: _entePrimaryColor.withValues(
+              alpha: _enteSelectionHighlightOpacity,
             ),
             selectionHandleColor: _entePrimaryColor,
           );

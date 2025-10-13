@@ -3,7 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_ocr/models/text_block.dart';
@@ -47,6 +47,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   static const double _handleHitboxExtent = 44.0;
   static const double _toolbarMinVerticalSpacing = 24.0;
   static const double _kMaterialTextLineHeight = 20.0;
+  static const double _kDragStartSlop = 6.0;
   static final TextSelectionControls _selectionControls =
       MaterialTextSelectionControls();
   static final Size _handleVisualSize = _selectionControls.getHandleSize(
@@ -83,6 +84,11 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   _SelectionAnchor? _extentAnchor;
   bool _isSelecting = false;
   int _activePointerCount = 0;
+  bool _isPanEnabled = false;
+  int? _selectionPointerId;
+  Offset? _selectionPointerDownScenePoint;
+  bool _selectionDragArmed = false;
+  bool _selectionDragInProgress = false;
 
   String _selectedTextPreview = '';
   Offset? _pendingDoubleTapScenePoint;
@@ -165,6 +171,12 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       _pendingDoubleTapScenePoint = null;
       _activeHandle = null;
       _activeHandleTouchOffset = null;
+      _activePointerCount = 0;
+      _isPanEnabled = false;
+      _selectionPointerId = null;
+      _selectionPointerDownScenePoint = null;
+      _selectionDragArmed = false;
+      _selectionDragInProgress = false;
     });
     _loadImageDimensions();
   }
@@ -194,38 +206,15 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         final Widget? copyButton = _buildCopyHandleButton(constraints);
 
         return Listener(
-          onPointerDown: (_) => _activePointerCount += 1,
-          onPointerUp: (_) =>
-              _activePointerCount = max(0, _activePointerCount - 1),
-          onPointerCancel: (_) =>
-              _activePointerCount = max(0, _activePointerCount - 1),
+          onPointerDown: _handlePointerDown,
+          onPointerMove: _handlePointerMove,
+          onPointerUp: _handlePointerUp,
+          onPointerCancel: _handlePointerCancel,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: _handleTapDown,
             onDoubleTapDown: _handleDoubleTapDown,
             onDoubleTap: _handleDoubleTap,
-            onPanStart: (details) {
-              if (_activePointerCount > 1) {
-                return;
-              }
-              _onPanStart(details);
-            },
-            onPanUpdate: (details) {
-              if (_activePointerCount > 1) {
-                return;
-              }
-              _onPanUpdate(details);
-            },
-            onPanEnd: (details) {
-              if (_isSelecting) {
-                _onPanEnd(details);
-              }
-            },
-            onPanCancel: () {
-              if (_isSelecting) {
-                _onPanCancel();
-              }
-            },
             onLongPressStart: (details) {
               if (_activePointerCount > 1) {
                 return;
@@ -237,6 +226,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
               transformationController: _transformController,
               minScale: 0.5,
               maxScale: 4.0,
+              panEnabled: _isPanEnabled,
               child: Stack(
                 children: [
                   Center(
@@ -273,10 +263,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     );
   }
 
-  Offset? _sceneFromViewport(Offset viewportPoint) {
-    return _transformController.toScene(viewportPoint);
-  }
-
   Offset? _sceneFromGlobal(Offset globalPoint) {
     final renderBox =
         _interactiveViewerKey.currentContext?.findRenderObject() as RenderBox?;
@@ -285,6 +271,201 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     }
     final local = renderBox.globalToLocal(globalPoint);
     return _transformController.toScene(local);
+  }
+
+  void _setActivePointerCount(int newCount) {
+    final int clamped = max(0, newCount);
+    if (clamped == _activePointerCount) {
+      return;
+    }
+
+    _activePointerCount = clamped;
+
+    final bool shouldEnablePan = _activePointerCount > 1;
+    if (shouldEnablePan != _isPanEnabled) {
+      setState(() {
+        _isPanEnabled = shouldEnablePan;
+      });
+    }
+
+    if (_activePointerCount > 1) {
+      _cancelPointerDrivenSelection();
+    }
+  }
+
+  bool _isPrimaryPointer(PointerDownEvent event) {
+    if (event.kind == ui.PointerDeviceKind.mouse) {
+      return event.buttons == kPrimaryMouseButton;
+    }
+    return true;
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _setActivePointerCount(_activePointerCount + 1);
+
+    if (!_isPrimaryPointer(event) || _activePointerCount > 1) {
+      return;
+    }
+
+    final Offset? scenePoint = _sceneFromGlobal(event.position);
+    if (scenePoint == null) {
+      return;
+    }
+
+    if (_isScenePointOnHandle(scenePoint)) {
+      _clearPointerSelectionTracking();
+      return;
+    }
+
+    _clearPointerSelectionTracking();
+    _selectionPointerId = event.pointer;
+    _selectionPointerDownScenePoint = scenePoint;
+    _selectionDragArmed = true;
+    _selectionDragInProgress = false;
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (event.pointer != _selectionPointerId || _activePointerCount > 1) {
+      return;
+    }
+
+    final Offset? scenePoint = _sceneFromGlobal(event.position);
+    if (scenePoint == null) {
+      return;
+    }
+
+    _selectionPointerDownScenePoint ??= scenePoint;
+
+    if (_selectionDragArmed && !_selectionDragInProgress) {
+      final Offset? initial = _selectionPointerDownScenePoint;
+      final double delta =
+          initial == null ? 0.0 : (scenePoint - initial).distance;
+      if (delta < _kDragStartSlop) {
+        return;
+      }
+
+      bool started = false;
+      if (initial != null) {
+        started = _beginDragSelection(initial);
+      }
+      if (!started) {
+        started = _beginDragSelection(scenePoint);
+      }
+      if (started) {
+        _selectionDragArmed = false;
+        _selectionDragInProgress = true;
+        if (initial != null && (scenePoint - initial).distance > 0.0) {
+          _continueDragSelection(scenePoint);
+        }
+      }
+      return;
+    }
+
+    if (_isSelecting && !_selectionDragInProgress) {
+      _selectionDragInProgress = true;
+    }
+
+    if (_selectionDragInProgress) {
+      _continueDragSelection(scenePoint);
+    }
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    if (event.pointer == _selectionPointerId) {
+      if (_selectionDragInProgress) {
+        _finishDragSelection(cancelled: false);
+      }
+      _clearPointerSelectionTracking();
+    }
+    _setActivePointerCount(_activePointerCount - 1);
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    if (event.pointer == _selectionPointerId) {
+      if (_selectionDragInProgress) {
+        _finishDragSelection(cancelled: true);
+      }
+      _clearPointerSelectionTracking();
+    }
+    _setActivePointerCount(_activePointerCount - 1);
+  }
+
+  void _cancelPointerDrivenSelection() {
+    if (_selectionDragInProgress) {
+      _finishDragSelection(cancelled: true);
+    }
+    _clearPointerSelectionTracking();
+  }
+
+  void _clearPointerSelectionTracking() {
+    _selectionPointerId = null;
+    _selectionPointerDownScenePoint = null;
+    _selectionDragArmed = false;
+    _selectionDragInProgress = false;
+  }
+
+  bool _beginDragSelection(Offset scenePoint) {
+    final int? blockIndex = _hitTestBlock(scenePoint);
+    if (blockIndex == null) {
+      if (_activeSelections.isNotEmpty) {
+        _clearSelection();
+      }
+      return false;
+    }
+
+    final _SelectionAnchor anchor = _anchorForPoint(blockIndex, scenePoint);
+    widget.onSelectionStart?.call();
+    setState(() {
+      _isSelecting = true;
+      _baseAnchor = anchor;
+      _extentAnchor = anchor;
+      _recomputeSelections();
+    });
+    if (_activeSelections.isNotEmpty) {
+      HapticFeedback.selectionClick();
+    }
+    return true;
+  }
+
+  void _continueDragSelection(Offset scenePoint) {
+    if (!_isSelecting) {
+      return;
+    }
+
+    final int? blockIndex =
+        _hitTestBlock(scenePoint) ?? _nearestBlockIndex(scenePoint);
+    if (blockIndex == null) {
+      return;
+    }
+
+    final _SelectionAnchor anchor = _anchorForPoint(blockIndex, scenePoint);
+    setState(() {
+      _extentAnchor = anchor;
+      _recomputeSelections();
+    });
+  }
+
+  void _finishDragSelection({required bool cancelled}) {
+    if (!_isSelecting) {
+      return;
+    }
+
+    setState(() {
+      _isSelecting = false;
+      if (_activeSelections.isEmpty) {
+        _selectedTextPreview = '';
+      }
+    });
+
+    if (_activeSelections.isNotEmpty) {
+      if (!cancelled) {
+        HapticFeedback.lightImpact();
+      }
+      _notifySelection();
+    } else {
+      _baseAnchor = null;
+      _extentAnchor = null;
+    }
   }
 
   void _scheduleMetricsRebuild(BoxConstraints constraints) {
@@ -375,9 +556,9 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       return selectionColor;
     }
     final Color base = _handleColor(context);
-    final double targetOpacity = base.opacity == 1.0 ? 0.28 : base.opacity;
-    final double clampedOpacity = targetOpacity.clamp(0.2, 0.35) as double;
-    return base.withOpacity(clampedOpacity);
+    final double targetOpacity = base.a == 1.0 ? 0.28 : base.a;
+    final double clampedOpacity = targetOpacity.clamp(0.2, 0.35);
+    return base.withValues(alpha: clampedOpacity);
   }
 
   List<Widget> _buildEditableBlockOverlays() {
@@ -497,50 +678,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     return handles;
   }
 
-  double? _selectionHandleVisualTop() {
-    double? top;
-    void accumulate(_SelectionAnchor? anchor, {required bool isStart}) {
-      if (anchor == null) {
-        return;
-      }
-      final Offset? anchorPoint = _handleAnchorPoint(anchor, isStart: isStart);
-      if (anchorPoint == null) {
-        return;
-      }
-      final TextSelectionHandleType type = isStart
-          ? TextSelectionHandleType.left
-          : TextSelectionHandleType.right;
-      final Rect rect = _handleVisualRectForAnchor(anchorPoint, type);
-      top = top == null ? rect.top : min(top!, rect.top);
-    }
-
-    accumulate(_baseAnchor, isStart: true);
-    accumulate(_extentAnchor, isStart: false);
-    return top;
-  }
-
-  double? _selectionHandleVisualBottom() {
-    double? bottom;
-    void accumulate(_SelectionAnchor? anchor, {required bool isStart}) {
-      if (anchor == null) {
-        return;
-      }
-      final Offset? anchorPoint = _handleAnchorPoint(anchor, isStart: isStart);
-      if (anchorPoint == null) {
-        return;
-      }
-      final TextSelectionHandleType type = isStart
-          ? TextSelectionHandleType.left
-          : TextSelectionHandleType.right;
-      final Rect rect = _handleVisualRectForAnchor(anchorPoint, type);
-      bottom = bottom == null ? rect.bottom : max(bottom!, rect.bottom);
-    }
-
-    accumulate(_baseAnchor, isStart: true);
-    accumulate(_extentAnchor, isStart: false);
-    return bottom;
-  }
-
   Widget? _buildCopyHandleButton(BoxConstraints constraints) {
     if (_activeSelections.isEmpty || _activeHandle != null || _isSelecting) {
       return null;
@@ -557,11 +694,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     );
     final double anchorAboveY = selectionBounds.top - spacing;
     final double anchorBelowY = selectionBounds.bottom + spacing;
-
-    final TextSelectionToolbarAnchors anchors = TextSelectionToolbarAnchors(
-      primaryAnchor: Offset(selectionBounds.center.dx, anchorAboveY),
-      secondaryAnchor: Offset(selectionBounds.center.dx, anchorBelowY),
-    );
 
     final MaterialLocalizations localizations = MaterialLocalizations.of(
       context,
@@ -582,7 +714,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -608,7 +740,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
             ),
             Container(
               width: 1,
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
             ),
             TextButton(
               style: TextButton.styleFrom(
@@ -679,23 +811,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
           ),
         ),
       ),
-    );
-  }
-
-  Rect _handleVisualRectForAnchor(
-    Offset anchorPoint,
-    TextSelectionHandleType type,
-  ) {
-    final Offset handleAnchor = _selectionControls.getHandleAnchor(
-      type,
-      _kMaterialTextLineHeight,
-    );
-    final Offset topLeft = anchorPoint - handleAnchor;
-    return Rect.fromLTWH(
-      topLeft.dx,
-      topLeft.dy,
-      _handleVisualWidth,
-      _handleVisualHeight,
     );
   }
 
@@ -992,97 +1107,6 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     );
   }
 
-  void _onPanStart(DragStartDetails details) {
-    final scenePoint = _sceneFromViewport(details.localPosition);
-    if (scenePoint == null) {
-      return;
-    }
-
-    final blockIndex = _hitTestBlock(scenePoint);
-    if (blockIndex == null) {
-      if (_activeSelections.isNotEmpty) {
-        _clearSelection();
-      }
-      return;
-    }
-
-    final anchor = _anchorForPoint(blockIndex, scenePoint);
-    widget.onSelectionStart?.call();
-    setState(() {
-      _isSelecting = true;
-      _baseAnchor = anchor;
-      _extentAnchor = anchor;
-      _recomputeSelections();
-    });
-    if (_activeSelections.isNotEmpty) {
-      HapticFeedback.selectionClick();
-    }
-  }
-
-  void _onPanUpdate(DragUpdateDetails details) {
-    if (!_isSelecting) {
-      return;
-    }
-
-    final scenePoint = _sceneFromViewport(details.localPosition);
-    if (scenePoint == null) {
-      return;
-    }
-
-    final blockIndex =
-        _hitTestBlock(scenePoint) ?? _nearestBlockIndex(scenePoint);
-    if (blockIndex == null) {
-      return;
-    }
-
-    final anchor = _anchorForPoint(blockIndex, scenePoint);
-    setState(() {
-      _extentAnchor = anchor;
-      _recomputeSelections();
-    });
-  }
-
-  void _onPanEnd(DragEndDetails details) {
-    if (!_isSelecting) {
-      return;
-    }
-
-    setState(() {
-      _isSelecting = false;
-      if (_activeSelections.isEmpty) {
-        _selectedTextPreview = '';
-      }
-    });
-
-    if (_activeSelections.isNotEmpty) {
-      HapticFeedback.lightImpact();
-      _notifySelection();
-    } else {
-      _baseAnchor = null;
-      _extentAnchor = null;
-    }
-  }
-
-  void _onPanCancel() {
-    if (!_isSelecting) {
-      return;
-    }
-
-    setState(() {
-      _isSelecting = false;
-      if (_activeSelections.isEmpty) {
-        _selectedTextPreview = '';
-      }
-    });
-
-    if (_activeSelections.isNotEmpty) {
-      _notifySelection();
-    } else {
-      _baseAnchor = null;
-      _extentAnchor = null;
-    }
-  }
-
   void _onLongPressStart(LongPressStartDetails details) {
     final scenePoint = _sceneFromGlobal(details.globalPosition);
     if (scenePoint == null) {
@@ -1095,6 +1119,9 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     }
 
     final anchor = _anchorForPoint(blockIndex, scenePoint);
+    _selectionDragArmed = false;
+    _selectionDragInProgress = true;
+    _selectionPointerDownScenePoint ??= scenePoint;
     widget.onSelectionStart?.call();
     setState(() {
       _isSelecting = true;
@@ -1836,6 +1863,7 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
   }
 
   void _clearSelection() {
+    _clearPointerSelectionTracking();
     setState(() {
       _activeSelections = <int, TextSelection>{};
       _baseAnchor = null;
