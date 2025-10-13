@@ -311,7 +311,7 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
               ),
             ),
             child: const Text(
-              'Drag across the text to select just what you need',
+              'Drag across the text or double tap to select just what you need',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 13,
