@@ -1,7 +1,6 @@
 import Flutter
 import UIKit
 import Vision
-import CoreImage
 
 public class MobileOcrPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -66,7 +65,7 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                                   minConfidence: Float,
                                   result: @escaping FlutterResult) {
         // Move processing to background queue
-        DispatchQueue.global(qos: .userInitiated).async {
+        let workItem = DispatchWorkItem {
             guard let image = UIImage(contentsOfFile: imagePath) else {
                 DispatchQueue.main.async {
                     result(FlutterError(code: "IMAGE_LOAD_ERROR",
@@ -76,8 +75,14 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            // Fix image orientation
-            let fixedImage = self.fixImageOrientation(image)
+            // Fix image orientation using modern API
+            var fixedImage = image
+            if image.imageOrientation != .up {
+                let renderer = UIGraphicsImageRenderer(size: image.size)
+                fixedImage = renderer.image { _ in
+                    image.draw(at: .zero)
+                }
+            }
 
             guard let cgImage = fixedImage.cgImage else {
                 DispatchQueue.main.async {
@@ -142,46 +147,10 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                         ["x": Double(bottomLeft.x), "y": Double(bottomLeft.y)]
                     ]
 
-                    var characterEntries: [[String: Any]] = []
-                    if let charBoxes = topCandidate.characterBoxes, !charBoxes.isEmpty {
-                        let characters = Array(topCandidate.string)
-                        let count = min(charBoxes.count, characters.count)
-
-                        for index in 0..<count {
-                            let charBox = charBoxes[index]
-                            let character = String(characters[index])
-
-                            let charTopLeft = CGPoint(
-                                x: charBox.topLeft.x * imageWidth,
-                                y: (1 - charBox.topLeft.y) * imageHeight
-                            )
-                            let charTopRight = CGPoint(
-                                x: charBox.topRight.x * imageWidth,
-                                y: (1 - charBox.topRight.y) * imageHeight
-                            )
-                            let charBottomRight = CGPoint(
-                                x: charBox.bottomRight.x * imageWidth,
-                                y: (1 - charBox.bottomRight.y) * imageHeight
-                            )
-                            let charBottomLeft = CGPoint(
-                                x: charBox.bottomLeft.x * imageWidth,
-                                y: (1 - charBox.bottomLeft.y) * imageHeight
-                            )
-
-                            let charPoints: [[String: Double]] = [
-                                ["x": Double(charTopLeft.x), "y": Double(charTopLeft.y)],
-                                ["x": Double(charTopRight.x), "y": Double(charTopRight.y)],
-                                ["x": Double(charBottomRight.x), "y": Double(charBottomRight.y)],
-                                ["x": Double(charBottomLeft.x), "y": Double(charBottomLeft.y)]
-                            ]
-
-                            characterEntries.append([
-                                "text": character,
-                                "confidence": Double(topCandidate.confidence),
-                                "points": charPoints
-                            ])
-                        }
-                    }
+                    // Character-level bounding boxes (iOS 16+ only)
+                    let characterEntries: [[String: Any]] = []
+                    // TODO: Re-enable when minimum iOS version is 16+
+                    // Character boxes require iOS 16+ API that's not available in current build
 
                     detectedTexts.append([
                         "text": topCandidate.string,
@@ -218,13 +187,29 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                 return
             }
 
+            // Helper function to calculate bounding rect
+            func boundingRect(for pointMaps: [[String: Double]]) -> CGRect? {
+                guard let firstX = pointMaps.first?["x"], let firstY = pointMaps.first?["y"] else {
+                    return nil
+                }
+                var minX = firstX, maxX = firstX, minY = firstY, maxY = firstY
+                for point in pointMaps {
+                    guard let x = point["x"], let y = point["y"] else { continue }
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
+                }
+                return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX), height: CGFloat(maxY - minY))
+            }
+
             // Sort results by position (top to bottom, left to right)
             detectedTexts.sort { first, second in
                 guard
                     let firstPoints = first["points"] as? [[String: Double]],
                     let secondPoints = second["points"] as? [[String: Double]],
-                    let firstRect = self.boundingRect(for: firstPoints),
-                    let secondRect = self.boundingRect(for: secondPoints)
+                    let firstRect = boundingRect(for: firstPoints),
+                    let secondRect = boundingRect(for: secondPoints)
                 else {
                     return false
                 }
@@ -241,12 +226,13 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                 result(detectedTexts)
             }
         }
+        DispatchQueue.global(qos: .userInitiated).async(execute: workItem)
     }
 
     private func quickDetectText(imagePath: String,
                                  minConfidence: Float,
                                  result: @escaping FlutterResult) {
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async(execute: {
             guard let image = UIImage(contentsOfFile: imagePath) else {
                 DispatchQueue.main.async {
                     result(FlutterError(code: "IMAGE_LOAD_ERROR",
@@ -256,7 +242,13 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            let fixedImage = self.fixImageOrientation(image)
+            var fixedImage = image
+            if image.imageOrientation != .up {
+                let renderer = UIGraphicsImageRenderer(size: image.size)
+                fixedImage = renderer.image { _ in
+                    image.draw(at: .zero)
+                }
+            }
 
             guard let cgImage = fixedImage.cgImage else {
                 DispatchQueue.main.async {
@@ -301,53 +293,7 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             DispatchQueue.main.async {
                 result(hasHighConfidenceText)
             }
-        }
+        })
     }
 
-    private func fixImageOrientation(_ image: UIImage) -> UIImage {
-        // If image orientation is already correct, return as is
-        if image.imageOrientation == .up {
-            return image
-        }
-
-        // Redraw the image with correct orientation
-        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
-        image.draw(in: CGRect(origin: .zero, size: image.size))
-        let normalizedImage = UIGraphicsGetImageFromCurrentImageContext()!
-        UIGraphicsEndImageContext()
-
-        return normalizedImage
-    }
-
-    private func boundingRect(for pointMaps: [[String: Double]]) -> CGRect? {
-        guard
-            let firstX = pointMaps.first?["x"],
-            let firstY = pointMaps.first?["y"]
-        else {
-            return nil
-        }
-
-        var minX = firstX
-        var maxX = firstX
-        var minY = firstY
-        var maxY = firstY
-
-        for point in pointMaps {
-            guard let x = point["x"], let y = point["y"] else {
-                continue
-            }
-
-            if x < minX { minX = x }
-            if x > maxX { maxX = x }
-            if y < minY { minY = y }
-            if y > maxY { maxY = y }
-        }
-
-        return CGRect(
-            x: CGFloat(minX),
-            y: CGFloat(minY),
-            width: CGFloat(maxX - minX),
-            height: CGFloat(maxY - minY)
-        )
-    }
 }

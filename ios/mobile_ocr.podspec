@@ -24,5 +24,5 @@ Provides text detection and recognition capabilities without requiring external 
   s.swift_version = '5.0'
 
   # Specify frameworks
-  s.frameworks = 'Vision', 'CoreImage', 'UIKit'
+  s.frameworks = 'Vision', 'UIKit'
 end
