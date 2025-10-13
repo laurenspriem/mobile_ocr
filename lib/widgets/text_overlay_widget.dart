@@ -711,6 +711,10 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     final Widget toolbar = Container(
       decoration: BoxDecoration(
         color: Colors.black,
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.2),
+          width: 1,
+        ),
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
