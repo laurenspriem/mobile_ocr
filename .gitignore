@@ -9,6 +9,8 @@
 .history
 .svn/
 migrate_working_dir/
+.claude/
+claude.local.md
 
 # IntelliJ related
 *.iml
@@ -76,7 +78,12 @@ coverage/
 example/.flutter-plugins
 example/.flutter-plugins-dependencies
 example/pubspec.lock
-example/ios/Flutter/
+example/ios/Flutter/Generated.xcconfig
+example/ios/Flutter/flutter_export_environment.sh
+example/ios/Flutter/ephemeral/
+example/ios/Flutter/.last_build_id
+example/ios/Flutter/Flutter.podspec
+example/ios/build/
 example/ios/Runner/GeneratedPluginRegistrant.*
 example/android/.gradle/
 example/android/app/src/main/java/io/flutter/plugins/
