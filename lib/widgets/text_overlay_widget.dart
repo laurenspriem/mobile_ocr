@@ -566,37 +566,80 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
     final MaterialLocalizations localizations = MaterialLocalizations.of(
       context,
     );
-    final List<Widget> buttons = <Widget>[
-      TextSelectionToolbarTextButton(
-        padding: TextSelectionToolbarTextButton.getPadding(0, 2),
-        onPressed: _copySelectedText,
-        child: Text(localizations.copyButtonLabel),
-      ),
-      TextSelectionToolbarTextButton(
-        padding: TextSelectionToolbarTextButton.getPadding(1, 2),
-        onPressed: _selectAllText,
-        child: Text(localizations.selectAllButtonLabel),
-      ),
-    ];
 
-    final ThemeData theme = Theme.of(context);
-    final ThemeData toolbarTheme = theme.copyWith(
-      colorScheme: theme.colorScheme.copyWith(
-        surface: Colors.black,
-        onSurface: Colors.white,
+    // Use explicit white color for button text
+    const TextStyle buttonTextStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 14,
+      fontWeight: FontWeight.w500,
+    );
+
+
+    // Custom toolbar with explicit black background
+    final Widget toolbar = Container(
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: Colors.white),
+      child: IntrinsicHeight(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.horizontal(left: Radius.circular(8)),
+                ),
+              ),
+              onPressed: _copySelectedText,
+              child: Text(
+                localizations.copyButtonLabel,
+                style: buttonTextStyle,
+              ),
+            ),
+            Container(
+              width: 1,
+              color: Colors.white.withOpacity(0.2),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.horizontal(right: Radius.circular(8)),
+                ),
+              ),
+              onPressed: _selectAllText,
+              child: Text(
+                localizations.selectAllButtonLabel,
+                style: buttonTextStyle,
+              ),
+            ),
+          ],
+        ),
       ),
     );
 
-    return Positioned.fill(
-      child: Theme(
-        data: toolbarTheme,
-        child: AdaptiveTextSelectionToolbar(
-          anchors: anchors,
-          children: buttons,
-        ),
+    // Position toolbar above or below selection
+    final bool fitsAbove = anchorAboveY > 50;
+    final double toolbarY = fitsAbove ? anchorAboveY - 44 : anchorBelowY;
+
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: fitsAbove ? toolbarY : null,
+      bottom: fitsAbove ? null : MediaQuery.of(context).size.height - toolbarY - 44,
+      child: Center(
+        child: toolbar,
       ),
     );
   }
