@@ -10,6 +10,34 @@ import 'package:mobile_ocr/widgets/text_overlay_widget.dart';
 const Color _entePrimaryColor = Color(0xFF1DB954);
 const double _enteSelectionHighlightOpacity = 0.28;
 
+/// Collection of user-facing strings used by [TextDetectorWidget].
+class TextDetectorStrings {
+  final String processingOverlayMessage;
+  final String loadingIndicatorLabel;
+  final String selectionHint;
+  final String noTextDetected;
+  final String retryButtonLabel;
+  final String modelsNetworkRequiredError;
+  final String modelsPrepareFailed;
+  final String imageNotFoundError;
+  final String imageDecodeFailedError;
+  final String genericDetectError;
+
+  const TextDetectorStrings({
+    this.processingOverlayMessage = 'Detecting text...',
+    this.loadingIndicatorLabel = 'Detecting Text',
+    this.selectionHint = 'Swipe or double tap to select just what you need',
+    this.noTextDetected = 'No text detected',
+    this.retryButtonLabel = 'Retry',
+    this.modelsNetworkRequiredError =
+        'Network connection required to download OCR models on first use',
+    this.modelsPrepareFailed = 'Could not prepare OCR models',
+    this.imageNotFoundError = 'Image file not found',
+    this.imageDecodeFailedError = 'Could not read image file',
+    this.genericDetectError = 'Could not detect text in image',
+  });
+}
+
 /// A complete text detection widget that displays an image and allows
 /// users to select and copy detected text.
 class TextDetectorWidget extends StatefulWidget {
@@ -40,6 +68,9 @@ class TextDetectorWidget extends StatefulWidget {
   /// Enable debug utilities like the detected-text dialog.
   final bool debugMode;
 
+  /// Strings used for user-facing text in the widget.
+  final TextDetectorStrings strings;
+
   const TextDetectorWidget({
     super.key,
     required this.imagePath,
@@ -51,6 +82,7 @@ class TextDetectorWidget extends StatefulWidget {
     this.showUnselectedBoundaries = true,
     this.enableSelectionPreview = false,
     this.debugMode = false,
+    this.strings = const TextDetectorStrings(),
   });
 
   @override
@@ -156,10 +188,9 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
               errorStr.contains('http');
 
           if (_isNetworkError) {
-            _errorMessage =
-                'Network connection required to download OCR models on first use';
+            _errorMessage = widget.strings.modelsNetworkRequiredError;
           } else {
-            _errorMessage = 'Could not prepare OCR models';
+            _errorMessage = widget.strings.modelsPrepareFailed;
           }
           debugPrint('Model preparation error: $error');
         })
@@ -207,11 +238,11 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
           if (errorStr.contains('image') &&
               errorStr.contains('not') &&
               errorStr.contains('exist')) {
-            _errorMessage = 'Image file not found';
+            _errorMessage = widget.strings.imageNotFoundError;
           } else if (errorStr.contains('failed to decode')) {
-            _errorMessage = 'Could not read image file';
+            _errorMessage = widget.strings.imageDecodeFailedError;
           } else {
-            _errorMessage = 'Could not detect text in image';
+            _errorMessage = widget.strings.genericDetectError;
           }
         });
       }
@@ -248,17 +279,20 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
                     color: Colors.black.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CupertinoActivityIndicator(
+                      const CupertinoActivityIndicator(
                         radius: 10,
                         color: Colors.white,
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Text(
-                        'Detecting text...',
-                        style: TextStyle(color: Colors.white, fontSize: 14),
+                        widget.strings.processingOverlayMessage,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
                       ),
                     ],
                   ),
@@ -310,9 +344,9 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
                 width: 0.8,
               ),
             ),
-            child: const Text(
-              'Drag across the text or double tap to select just what you need',
-              style: TextStyle(
+            child: Text(
+              widget.strings.selectionHint,
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -463,8 +497,8 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
             ),
             const SizedBox(width: 12),
             Text(
-              'Detecting Text',
-              style: TextStyle(
+              widget.strings.loadingIndicatorLabel,
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -544,7 +578,7 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
               _detectText();
             },
             icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('Retry'),
+            label: Text(widget.strings.retryButtonLabel),
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.orange.shade300,
               side: BorderSide(color: Colors.orange.shade300),
@@ -573,7 +607,7 @@ class _TextDetectorWidgetState extends State<TextDetectorWidget> {
           ),
           const SizedBox(width: 8),
           Text(
-            'No text detected',
+            widget.strings.noTextDetected,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.8),
               fontSize: 14,
