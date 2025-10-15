@@ -14,6 +14,7 @@ import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.Locale
 
 /** MobileOcrPlugin */
 class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
@@ -94,10 +95,28 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
 
         mainScope.launch {
           try {
-            val hasText = withContext(Dispatchers.IO) {
+            val detectionSummary = withContext(Dispatchers.IO) {
               hasHighConfidenceText(imagePath, QUICK_DETECTION_MIN_SCORE)
             }
-            result.success(hasText)
+            val threshold = String.format(Locale.US, "%.2f", QUICK_DETECTION_MIN_SCORE)
+            val maxScore = detectionSummary.maxDetectionScore?.let {
+              String.format(Locale.US, "%.3f", it)
+            } ?: "none"
+            val bestRecognition = detectionSummary.bestRecognitionScore?.let {
+              String.format(Locale.US, "%.3f", it)
+            } ?: "none"
+            val matchedDetectionScore = detectionSummary.matchedDetectionScore?.let {
+              String.format(Locale.US, "%.3f", it)
+            } ?: "none"
+            Log.i(
+              TAG,
+              "hasText quick check result=${detectionSummary.hasText}; " +
+                "detectorHit=${detectionSummary.detectorHit} threshold=$threshold " +
+                "examined=${detectionSummary.examinedDetections} candidates=${detectionSummary.candidateCount} " +
+                "evaluated=${detectionSummary.evaluatedCandidates} maxScore=$maxScore " +
+                "bestRec=$bestRecognition matchedScore=$matchedDetectionScore"
+            )
+            result.success(detectionSummary.hasText)
           } catch (e: Exception) {
             Log.e(TAG, "Quick detection failed for $imagePath", e)
             result.error("DETECTION_ERROR", e.message ?: "Could not analyze image", null)
@@ -164,7 +183,7 @@ class MobileOcrPlugin: FlutterPlugin, MethodCallHandler {
   private suspend fun hasHighConfidenceText(
     imagePath: String,
     minDetectionConfidence: Float
-  ): Boolean {
+  ): QuickCheckResult {
     val processor = getOrCreateProcessor()
 
     val file = java.io.File(imagePath)

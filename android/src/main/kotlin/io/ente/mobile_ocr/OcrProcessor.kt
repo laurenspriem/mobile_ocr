@@ -47,6 +47,18 @@ data class TextBox(
     }
 }
 
+data class QuickCheckResult(
+    val hasText: Boolean,
+    val detectorHit: Boolean,
+    val examinedDetections: Int,
+    val candidateCount: Int,
+    val evaluatedCandidates: Int,
+    val maxDetectionScore: Float?,
+    val bestRecognitionScore: Float?,
+    val bestRecognitionText: String?,
+    val matchedDetectionScore: Float?
+)
+
 data class DebugOptions(
     val saveCrops: Boolean = false,
     val logRecognition: Boolean = false,
@@ -65,6 +77,7 @@ class OcrProcessor(
         private const val ANGLE_ASPECT_RATIO_THRESHOLD = 0.5f
         private const val LOW_CONFIDENCE_THRESHOLD = 0.65f
         private const val DEBUG_TAG = "OnnxOcrDebug"
+        private const val QUICK_CHECK_MAX_CANDIDATES = 3
     }
 
     private val ortEnv = OrtEnvironment.getEnvironment()
@@ -189,6 +202,17 @@ class OcrProcessor(
                 filteredCharacters.add(characterBoxesPerDetection[i])
             }
         }
+        if (filteredResults.isEmpty()) {
+            val bestRecognition = recognitionResults.maxOfOrNull { it.confidence }
+            val thresholdString = String.format(Locale.US, "%.2f", minThreshold)
+            val bestRecognitionString = bestRecognition?.let { String.format(Locale.US, "%.3f", it) } ?: "none"
+            Log.i(
+                DEBUG_TAG,
+                "Recognition produced no results. detections=${detectionResult.size}, " +
+                    "includeAllConfidenceScores=$includeAllConfidenceScores, threshold=$thresholdString, " +
+                    "bestRecognitionScore=$bestRecognitionString"
+            )
+        }
 
         return OcrResult(filteredResults, filteredTexts, filteredScores, filteredCharacters)
     }
@@ -198,12 +222,107 @@ class OcrProcessor(
         return processor.detect(bitmap)
     }
 
+    private fun recognizeCandidate(bitmap: Bitmap, box: TextBox): RecognitionResult? {
+        val crop = cropTextRegion(bitmap, box)
+        val crops = mutableListOf(crop)
+        val classificationMask = BooleanArray(1)
+        val rotationStates = BooleanArray(1)
+
+        if (useAngleClassification) {
+            val aspectRatio = crop.width.toFloat() / crop.height
+            val aspectCandidates = if (aspectRatio < ANGLE_ASPECT_RATIO_THRESHOLD) listOf(0) else emptyList()
+            classifyAndRotateIndices(
+                crops,
+                aspectCandidates,
+                classificationMask,
+                rotationStates,
+                "angle_aspect_quick"
+            )
+        }
+
+        var recognitionResults = recognizeText(crops)
+        if (useAngleClassification && recognitionResults.isNotEmpty()) {
+            val needsRetry = !classificationMask[0] && recognitionResults[0].confidence < LOW_CONFIDENCE_THRESHOLD
+            if (needsRetry) {
+                classifyAndRotateIndices(
+                    crops,
+                    listOf(0),
+                    classificationMask,
+                    rotationStates,
+                    "angle_confidence_quick"
+                )
+                val refreshed = recognizeText(crops)
+                if (refreshed.isNotEmpty() && refreshed[0].confidence > recognitionResults[0].confidence) {
+                    recognitionResults = refreshed
+                }
+            }
+        }
+
+        return recognitionResults.firstOrNull()
+    }
+
     fun hasHighConfidenceText(
         bitmap: Bitmap,
-        minimumDetectionConfidence: Float = 0.9f
-    ): Boolean {
+        minimumDetectionConfidence: Float = 0.9f,
+        recognitionThreshold: Float = MIN_RECOGNITION_SCORE
+    ): QuickCheckResult {
         val processor = TextDetector(detectionSession, ortEnv)
-        return processor.hasHighConfidenceDetection(bitmap, minimumDetectionConfidence)
+        val detectionSummary = processor.collectHighConfidenceDetections(
+            bitmap = bitmap,
+            minimumDetectionConfidence = minimumDetectionConfidence,
+            maxCandidates = QUICK_CHECK_MAX_CANDIDATES
+        )
+
+        if (detectionSummary.candidates.isEmpty()) {
+            return QuickCheckResult(
+                hasText = false,
+                detectorHit = false,
+                examinedDetections = detectionSummary.examinedDetections,
+                candidateCount = 0,
+                evaluatedCandidates = 0,
+                maxDetectionScore = detectionSummary.maxDetectionScore,
+                bestRecognitionScore = null,
+                bestRecognitionText = null,
+                matchedDetectionScore = null
+            )
+        }
+
+        var evaluated = 0
+        var matched = false
+        var matchedDetectionScore: Float? = null
+        var bestRecognition: RecognitionResult? = null
+        var bestRecognitionScore = Float.NEGATIVE_INFINITY
+
+        for (candidate in detectionSummary.candidates) {
+            evaluated++
+            val recognition = recognizeCandidate(bitmap, candidate.box)
+            if (recognition != null) {
+                if (recognition.confidence > bestRecognitionScore) {
+                    bestRecognitionScore = recognition.confidence
+                    bestRecognition = recognition
+                }
+                val meetsThreshold = recognition.confidence >= recognitionThreshold && recognition.text.isNotBlank()
+                if (meetsThreshold) {
+                    matched = true
+                    matchedDetectionScore = candidate.score
+                    break
+                }
+            }
+        }
+
+        val bestScore = if (bestRecognitionScore == Float.NEGATIVE_INFINITY) null else bestRecognitionScore
+        val bestText = bestRecognition?.text
+        return QuickCheckResult(
+            hasText = matched,
+            detectorHit = true,
+            examinedDetections = detectionSummary.examinedDetections,
+            candidateCount = detectionSummary.candidates.size,
+            evaluatedCandidates = evaluated,
+            maxDetectionScore = detectionSummary.maxDetectionScore,
+            bestRecognitionScore = bestScore,
+            bestRecognitionText = bestText,
+            matchedDetectionScore = matchedDetectionScore
+        )
     }
 
     private fun cropTextRegion(bitmap: Bitmap, box: TextBox): Bitmap {

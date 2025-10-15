@@ -7,6 +7,17 @@ import java.nio.FloatBuffer
 import java.util.ArrayDeque
 import kotlin.math.*
 
+data class DetectionCandidate(
+    val box: TextBox,
+    val score: Float
+)
+
+data class DetectionStageSummary(
+    val examinedDetections: Int,
+    val maxDetectionScore: Float?,
+    val candidates: List<DetectionCandidate>
+)
+
 class TextDetector(
     private val session: OrtSession,
     private val ortEnv: OrtEnvironment
@@ -35,20 +46,35 @@ class TextDetector(
         return sortBoxes(boxes)
     }
 
-    fun hasHighConfidenceDetection(
+    fun collectHighConfidenceDetections(
         bitmap: Bitmap,
-        minimumDetectionConfidence: Float
-    ): Boolean {
-        var found = false
-        runDetection(bitmap) { _, score ->
-            if (score >= minimumDetectionConfidence) {
-                found = true
-                true
+        minimumDetectionConfidence: Float,
+        maxCandidates: Int
+    ): DetectionStageSummary {
+        var examined = 0
+        var maxScore = Float.NEGATIVE_INFINITY
+        val candidates = mutableListOf<DetectionCandidate>()
+
+        runDetection(bitmap) { box, score ->
+            examined++
+            if (score > maxScore) {
+                maxScore = score
+            }
+            val meetsThreshold = score >= minimumDetectionConfidence
+            if (meetsThreshold) {
+                candidates.add(DetectionCandidate(box, score))
+                candidates.size >= maxCandidates
             } else {
                 false
             }
         }
-        return found
+
+        val bestScore = if (examined == 0) null else maxScore
+        return DetectionStageSummary(
+            examinedDetections = examined,
+            maxDetectionScore = bestScore,
+            candidates = candidates
+        )
     }
 
     private fun runDetection(

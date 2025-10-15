@@ -31,8 +31,11 @@ class OcrDemoPage extends StatefulWidget {
 
 class _OcrDemoPageState extends State<OcrDemoPage> {
   final ImagePicker _picker = ImagePicker();
+  final MobileOcr _mobileOcr = MobileOcr();
   String? _imagePath;
   bool _isPickingImage = false;
+  bool _isCheckingHasText = false;
+  bool? _lastHasTextResult;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +50,8 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
               onPressed: () {
                 setState(() {
                   _imagePath = null;
+                  _lastHasTextResult = null;
+                  _isCheckingHasText = false;
                 });
               },
             ),
@@ -70,6 +75,17 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
                     ),
                   ),
           ),
+          if (_lastHasTextResult != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'hasText result: ${_lastHasTextResult!}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
           _buildActionBar(context),
         ],
       ),
@@ -100,12 +116,25 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   }
 
   Widget _buildActionBar(BuildContext context) {
+    final hasImage = _imagePath != null;
+
     return SafeArea(
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
         child: Row(
           children: [
+            if (hasImage)
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isCheckingHasText ? null : _checkHasText,
+                  icon: const Icon(Icons.text_fields_outlined),
+                  label: _isCheckingHasText
+                      ? const Text('Checking...')
+                      : const Text('hasText'),
+                ),
+              ),
+            if (hasImage) const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: _isPickingImage
@@ -131,6 +160,38 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
     );
   }
 
+  Future<void> _checkHasText() async {
+    final path = _imagePath;
+    if (path == null) {
+      return;
+    }
+
+    setState(() {
+      _isCheckingHasText = true;
+      _lastHasTextResult = null;
+    });
+
+    try {
+      debugPrint('Checking hasText for $path');
+      final result = await _mobileOcr.hasText(imagePath: path);
+      if (!mounted) return;
+      setState(() {
+        _lastHasTextResult = result;
+      });
+      _showSnackBar(context, 'hasText result: $result');
+    } catch (error) {
+      if (!mounted) return;
+      debugPrint('hasText failed for $path: $error');
+      _showSnackBar(context, 'hasText failed: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCheckingHasText = false;
+        });
+      }
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     setState(() {
       _isPickingImage = true;
@@ -145,6 +206,8 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       if (!mounted) return;
       setState(() {
         _imagePath = file.path;
+        _lastHasTextResult = null;
+        _isCheckingHasText = false;
       });
     } catch (error) {
       if (!mounted) return;
@@ -161,11 +224,6 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
   void _showSnackBar(BuildContext context, String message) {
     ScaffoldMessenger.of(context)
       ..removeCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-        ),
-      );
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
-
 }
