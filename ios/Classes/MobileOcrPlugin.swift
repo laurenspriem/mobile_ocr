@@ -57,10 +57,10 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        // Use higher threshold for hasText to avoid false positives
-        // hasText should be more conservative than detectText
+        // Use same threshold as detectText for consistency
+        // Text validation will filter out false positives
         quickDetectText(imagePath: imagePath,
-                        minConfidence: 0.7,
+                        minConfidence: 0.5,
                         result: result)
     }
 
