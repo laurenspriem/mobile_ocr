@@ -39,7 +39,8 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         }
 
         let includeAllConfidenceScores = (arguments["includeAllConfidenceScores"] as? Bool) ?? false
-        let minConfidence: Float = includeAllConfidenceScores ? 0.5 : 0.8
+        // Lower confidence thresholds to be more inclusive
+        let minConfidence: Float = includeAllConfidenceScores ? 0.3 : 0.5
 
         detectTextInImage(imagePath: imagePath,
                          minConfidence: minConfidence,
@@ -56,8 +57,10 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             return
         }
 
+        // Use higher threshold for hasText to avoid false positives
+        // hasText should be more conservative than detectText
         quickDetectText(imagePath: imagePath,
-                        minConfidence: 0.9,
+                        minConfidence: 0.7,
                         result: result)
     }
 
@@ -229,10 +232,23 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         DispatchQueue.global(qos: .userInitiated).async(execute: workItem)
     }
 
+    // Helper to validate if text looks meaningful (not just symbols/noise)
+    private func isValidText(_ text: String) -> Bool {
+        // Remove whitespace and check length
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else { return false }
+
+        // Check if it contains at least one letter or digit
+        let alphanumericSet = CharacterSet.alphanumerics
+        return trimmed.unicodeScalars.contains { alphanumericSet.contains($0) }
+    }
+
     private func quickDetectText(imagePath: String,
                                  minConfidence: Float,
                                  result: @escaping FlutterResult) {
-        DispatchQueue.global(qos: .userInitiated).async(execute: {
+        DispatchQueue.global(qos: .userInitiated).async(execute: { [weak self] in
+            guard let self = self else { return }
+
             guard let image = UIImage(contentsOfFile: imagePath) else {
                 DispatchQueue.main.async {
                     result(FlutterError(code: "IMAGE_LOAD_ERROR",
@@ -242,12 +258,19 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            var fixedImage = image
-            if image.imageOrientation != .up {
-                let renderer = UIGraphicsImageRenderer(size: image.size)
-                fixedImage = renderer.image { _ in
-                    image.draw(at: .zero)
-                }
+            // Downscale image for faster hasText detection
+            // Use max dimension of 1024 pixels for quick detection
+            let maxDimension: CGFloat = 1024
+            var targetSize = image.size
+
+            if image.size.width > maxDimension || image.size.height > maxDimension {
+                let scale = min(maxDimension / image.size.width, maxDimension / image.size.height)
+                targetSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            }
+
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let fixedImage = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: targetSize))
             }
 
             guard let cgImage = fixedImage.cgImage else {
@@ -260,24 +283,45 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             }
 
             let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            var hasHighConfidenceText = false
+            var hasValidText = false
 
-            let request = VNDetectTextRectanglesRequest { (request, error) in
+            // Use VNRecognizeTextRequest (same as detectText) instead of VNDetectTextRectanglesRequest
+            // This ensures consistency between hasText and detectText
+            let request = VNRecognizeTextRequest { (request, error) in
                 if let error = error {
-                    print("Text detection error: \(error.localizedDescription)")
+                    print("hasText - Text recognition error: \(error.localizedDescription)")
                     return
                 }
 
-                guard let observations = request.results as? [VNTextObservation] else {
+                guard let observations = request.results as? [VNRecognizedTextObservation] else {
                     return
                 }
 
-                hasHighConfidenceText = observations.contains { observation in
-                    return observation.confidence >= minConfidence
+                // Check if any recognized text meets the confidence threshold and is valid
+                for observation in observations {
+                    guard let topCandidate = observation.topCandidates(1).first else { continue }
+
+                    let isValid = self.isValidText(topCandidate.string)
+
+                    if topCandidate.confidence >= minConfidence && isValid {
+                        hasValidText = true
+                        break  // Found at least one valid text with high confidence
+                    }
                 }
             }
 
-            request.reportCharacterBoxes = false
+            // Configure request for quick detection (can be less accurate than full detection)
+            request.recognitionLevel = .fast
+            request.minimumTextHeight = 0.01
+            request.usesLanguageCorrection = false  // Skip for faster processing
+
+            // Use automatic language detection if available
+            if #available(iOS 16.0, *) {
+                request.automaticallyDetectsLanguage = true
+                request.revision = VNRecognizeTextRequestRevision3
+            } else {
+                request.recognitionLanguages = ["en-US"]
+            }
 
             do {
                 try requestHandler.perform([request])
@@ -291,7 +335,7 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             }
 
             DispatchQueue.main.async {
-                result(hasHighConfidenceText)
+                result(hasValidText)
             }
         })
     }
