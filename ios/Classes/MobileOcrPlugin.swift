@@ -238,9 +238,13 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { return false }
 
-        // Check if it contains at least one letter or digit
+        // Count alphanumeric vs total characters
         let alphanumericSet = CharacterSet.alphanumerics
-        return trimmed.unicodeScalars.contains { alphanumericSet.contains($0) }
+        let alphanumericCount = trimmed.unicodeScalars.filter { alphanumericSet.contains($0) }.count
+
+        // Require at least 50% alphanumeric characters to filter out symbol noise
+        let ratio = Double(alphanumericCount) / Double(trimmed.count)
+        return ratio >= 0.5
     }
 
     private func quickDetectText(imagePath: String,
@@ -303,11 +307,19 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
 
                     let isValid = self.isValidText(topCandidate.string)
 
+                    #if DEBUG
+                    print("hasText - '\(topCandidate.string)' conf:\(topCandidate.confidence) valid:\(isValid) passedThreshold:\(topCandidate.confidence >= minConfidence)")
+                    #endif
+
                     if topCandidate.confidence >= minConfidence && isValid {
                         hasValidText = true
                         break  // Found at least one valid text with high confidence
                     }
                 }
+
+                #if DEBUG
+                print("hasText - Total observations: \(observations.count), Result: \(hasValidText)")
+                #endif
             }
 
             // Configure request for quick detection (can be less accurate than full detection)
