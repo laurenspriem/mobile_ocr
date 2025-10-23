@@ -238,13 +238,23 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { return false }
 
-        // Count alphanumeric vs total characters
         let alphanumericSet = CharacterSet.alphanumerics
-        let alphanumericCount = trimmed.unicodeScalars.filter { alphanumericSet.contains($0) }.count
 
-        // Require at least 50% alphanumeric characters to filter out symbol noise
-        let ratio = Double(alphanumericCount) / Double(trimmed.count)
-        return ratio >= 0.5
+        // Look for at least one sequence of 3+ consecutive alphanumeric characters
+        // This allows "198", "abc", "P@ss123" but rejects noise like "*•/• ; 41'4.•/4"
+        var consecutiveCount = 0
+        for scalar in trimmed.unicodeScalars {
+            if alphanumericSet.contains(scalar) {
+                consecutiveCount += 1
+                if consecutiveCount >= 3 {
+                    return true  // Found a word-like sequence
+                }
+            } else {
+                consecutiveCount = 0
+            }
+        }
+
+        return false
     }
 
     private func quickDetectText(imagePath: String,
@@ -307,25 +317,17 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
 
                     let isValid = self.isValidText(topCandidate.string)
 
-                    #if DEBUG
-                    print("hasText - '\(topCandidate.string)' conf:\(topCandidate.confidence) valid:\(isValid) passedThreshold:\(topCandidate.confidence >= minConfidence)")
-                    #endif
-
                     if topCandidate.confidence >= minConfidence && isValid {
                         hasValidText = true
                         break  // Found at least one valid text with high confidence
                     }
                 }
-
-                #if DEBUG
-                print("hasText - Total observations: \(observations.count), Result: \(hasValidText)")
-                #endif
             }
 
-            // Configure request for quick detection (can be less accurate than full detection)
-            request.recognitionLevel = .fast
+            // Use same settings as detectText for consistent confidence scores
+            request.recognitionLevel = .accurate
             request.minimumTextHeight = 0.01
-            request.usesLanguageCorrection = false  // Skip for faster processing
+            request.usesLanguageCorrection = true
 
             // Use automatic language detection if available
             if #available(iOS 16.0, *) {
