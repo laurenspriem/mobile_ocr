@@ -57,10 +57,10 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        // Use higher threshold for hasText to avoid false positives
-        // hasText should be more conservative than detectText
+        // Use same threshold as detectText for consistency
+        // Text validation will filter out false positives
         quickDetectText(imagePath: imagePath,
-                        minConfidence: 0.7,
+                        minConfidence: 0.5,
                         result: result)
     }
 
@@ -238,9 +238,23 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { return false }
 
-        // Check if it contains at least one letter or digit
         let alphanumericSet = CharacterSet.alphanumerics
-        return trimmed.unicodeScalars.contains { alphanumericSet.contains($0) }
+
+        // Look for at least one sequence of 3+ consecutive alphanumeric characters
+        // This allows "198", "abc", "P@ss123" but rejects noise like "*•/• ; 41'4.•/4"
+        var consecutiveCount = 0
+        for scalar in trimmed.unicodeScalars {
+            if alphanumericSet.contains(scalar) {
+                consecutiveCount += 1
+                if consecutiveCount >= 3 {
+                    return true  // Found a word-like sequence
+                }
+            } else {
+                consecutiveCount = 0
+            }
+        }
+
+        return false
     }
 
     private func quickDetectText(imagePath: String,
@@ -310,10 +324,10 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
                 }
             }
 
-            // Configure request for quick detection (can be less accurate than full detection)
-            request.recognitionLevel = .fast
+            // Use same settings as detectText for consistent confidence scores
+            request.recognitionLevel = .accurate
             request.minimumTextHeight = 0.01
-            request.usesLanguageCorrection = false  // Skip for faster processing
+            request.usesLanguageCorrection = true
 
             // Use automatic language detection if available
             if #available(iOS 16.0, *) {
