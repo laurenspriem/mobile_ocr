@@ -40,7 +40,7 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
 
         let includeAllConfidenceScores = (arguments["includeAllConfidenceScores"] as? Bool) ?? false
         // Lower confidence thresholds to be more inclusive
-        let minConfidence: Float = includeAllConfidenceScores ? 0.3 : 0.5
+        let minConfidence: Float = includeAllConfidenceScores ? 0.0 : 0.3
 
         detectTextInImage(imagePath: imagePath,
                          minConfidence: minConfidence,
@@ -60,7 +60,7 @@ public class MobileOcrPlugin: NSObject, FlutterPlugin {
         // Use same threshold as detectText for consistency
         // Text validation will filter out false positives
         quickDetectText(imagePath: imagePath,
-                        minConfidence: 0.5,
+                        minConfidence: 0.3,
                         result: result)
     }
 
