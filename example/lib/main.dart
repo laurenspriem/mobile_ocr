@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_ocr/mobile_ocr.dart';
 
@@ -30,12 +33,30 @@ class OcrDemoPage extends StatefulWidget {
 }
 
 class _OcrDemoPageState extends State<OcrDemoPage> {
+  static const List<String> _testImageAssets = <String>[
+    'assets/test_ocr/bob_ios_detection_issue.JPEG',
+    'assets/test_ocr/mail_screenshot.jpeg',
+    'assets/test_ocr/meme_ice_cream.jpeg',
+    'assets/test_ocr/meme_love_you.jpeg',
+    'assets/test_ocr/meme_perfect_couple.jpeg',
+    'assets/test_ocr/meme_waking_up.jpeg',
+    'assets/test_ocr/ocr_test.jpeg',
+    'assets/test_ocr/payment_transactions.png',
+    'assets/test_ocr/receipt_swiggy.jpg',
+    'assets/test_ocr/screen_photos.jpeg',
+    'assets/test_ocr/text_photos.jpeg',
+  ];
+
   final ImagePicker _picker = ImagePicker();
   final MobileOcr _mobileOcr = MobileOcr();
+  final Map<String, String> _cachedAssetPaths = <String, String>{};
+  Directory? _assetCacheDirectory;
   String? _imagePath;
   bool _isPickingImage = false;
   bool _isCheckingHasText = false;
   bool? _lastHasTextResult;
+  int? _currentTestImageIndex;
+  bool _isLoadingTestImage = false;
 
   @override
   Widget build(BuildContext context) {
@@ -122,38 +143,83 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (hasImage)
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _isCheckingHasText ? null : _checkHasText,
-                  icon: const Icon(Icons.text_fields_outlined),
-                  label: _isCheckingHasText
-                      ? const Text('Checking...')
-                      : const Text('hasText'),
+            Row(
+              children: [
+                if (hasImage)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isCheckingHasText ? null : _checkHasText,
+                      icon: const Icon(Icons.text_fields_outlined),
+                      label: _isCheckingHasText
+                          ? const Text('Checking...')
+                          : const Text('hasText'),
+                    ),
+                  ),
+                if (hasImage) const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isPickingImage
+                        ? null
+                        : () => _pickImage(ImageSource.gallery),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Gallery'),
+                  ),
                 ),
-              ),
-            if (hasImage) const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _isPickingImage
-                    ? null
-                    : () => _pickImage(ImageSource.gallery),
-                icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('Gallery'),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _isPickingImage
+                        ? null
+                        : () => _pickImage(ImageSource.camera),
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('Camera'),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: _isPickingImage
-                    ? null
-                    : () => _pickImage(ImageSource.camera),
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: const Text('Camera'),
+            if (_testImageAssets.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Previous test image',
+                    onPressed: _isLoadingTestImage
+                        ? null
+                        : () => _cycleTestImage(-1),
+                    icon: const Icon(Icons.arrow_left),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: _isLoadingTestImage
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(
+                              _currentTestImageIndex != null
+                                  ? _formatAssetLabel(
+                                      _testImageAssets[_currentTestImageIndex!],
+                                    )
+                                  : 'Tap arrows for test images',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Next test image',
+                    onPressed: _isLoadingTestImage
+                        ? null
+                        : () => _cycleTestImage(1),
+                    icon: const Icon(Icons.arrow_right),
+                  ),
+                ],
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -219,6 +285,80 @@ class _OcrDemoPageState extends State<OcrDemoPage> {
         });
       }
     }
+  }
+
+  Future<void> _cycleTestImage(int direction) async {
+    if (_testImageAssets.isEmpty || _isLoadingTestImage) {
+      return;
+    }
+    final total = _testImageAssets.length;
+    final currentIndex = _currentTestImageIndex;
+    final nextIndex = currentIndex == null
+        ? (direction >= 0 ? 0 : total - 1)
+        : _wrapIndex(currentIndex + direction, total);
+    setState(() {
+      _isLoadingTestImage = true;
+    });
+    try {
+      final assetPath = _testImageAssets[nextIndex];
+      final filePath = await _prepareTestAsset(assetPath);
+      if (!mounted) return;
+      setState(() {
+        _currentTestImageIndex = nextIndex;
+        _imagePath = filePath;
+        _lastHasTextResult = null;
+        _isCheckingHasText = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      _showSnackBar(context, 'Failed to load test image: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingTestImage = false;
+        });
+      }
+    }
+  }
+
+  Future<String> _prepareTestAsset(String assetPath) async {
+    final cachedPath = _cachedAssetPaths[assetPath];
+    if (cachedPath != null && await File(cachedPath).exists()) {
+      return cachedPath;
+    }
+    final cacheDir = await _ensureAssetCacheDirectory();
+    final fileName = assetPath.split('/').last;
+    final filePath = '${cacheDir.path}${Platform.pathSeparator}$fileName';
+    final file = File(filePath);
+    final data = await rootBundle.load(assetPath);
+    await file.writeAsBytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
+    _cachedAssetPaths[assetPath] = file.path;
+    return file.path;
+  }
+
+  Future<Directory> _ensureAssetCacheDirectory() async {
+    final existing = _assetCacheDirectory;
+    if (existing != null) {
+      return existing;
+    }
+    final directory =
+        await Directory.systemTemp.createTemp('mobile_ocr_example_assets_');
+    _assetCacheDirectory = directory;
+    return directory;
+  }
+
+  String _formatAssetLabel(String assetPath) {
+    final fileName = assetPath.split('/').last;
+    final baseName = fileName.split('.').first;
+    return baseName.replaceAll('_', ' ');
+  }
+
+  int _wrapIndex(int value, int length) {
+    final mod = value % length;
+    return mod < 0 ? mod + length : mod;
   }
 
   void _showSnackBar(BuildContext context, String message) {
