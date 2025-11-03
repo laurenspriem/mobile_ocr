@@ -1122,17 +1122,27 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       return;
     }
 
-    final anchor = _anchorForPoint(blockIndex, scenePoint);
+    widget.onSelectionStart?.call();
+
+    final bool wordSelected = _performWordSelection(
+      blockIndex,
+      scenePoint,
+      finalizeSelection: false,
+    );
+
+    if (!wordSelected) {
+      final anchor = _anchorForPoint(blockIndex, scenePoint);
+      setState(() {
+        _isSelecting = true;
+        _baseAnchor = anchor;
+        _extentAnchor = anchor;
+        _recomputeSelections();
+      });
+    }
+
     _selectionDragArmed = false;
     _selectionDragInProgress = true;
     _selectionPointerDownScenePoint ??= scenePoint;
-    widget.onSelectionStart?.call();
-    setState(() {
-      _isSelecting = true;
-      _baseAnchor = anchor;
-      _extentAnchor = anchor;
-      _recomputeSelections();
-    });
     HapticFeedback.mediumImpact();
   }
 
@@ -1170,13 +1180,18 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
       return;
     }
 
+    widget.onSelectionStart?.call();
     _performWordSelection(blockIndex, point);
   }
 
-  void _performWordSelection(int blockIndex, Offset scenePoint) {
+  bool _performWordSelection(
+    int blockIndex,
+    Offset scenePoint, {
+    bool finalizeSelection = true,
+  }) {
     final _BlockVisual? visual = _blockVisuals[blockIndex];
     if (visual == null || visual.characterCount == 0) {
-      return;
+      return false;
     }
 
     final _SelectionAnchor anchor = _anchorForPoint(blockIndex, scenePoint);
@@ -1190,10 +1205,9 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
 
     final TextRange? range = _wordBoundaryAt(visual, characterIndex);
     if (range == null || range.isCollapsed) {
-      return;
+      return false;
     }
 
-    widget.onSelectionStart?.call();
     setState(() {
       _baseAnchor = _SelectionAnchor(
         blockIndex,
@@ -1203,13 +1217,17 @@ class _TextOverlayWidgetState extends State<TextOverlayWidget> {
         blockIndex,
         TextPosition(offset: range.end),
       );
-      _isSelecting = false;
+      _isSelecting = !finalizeSelection;
       _recomputeSelections();
     });
     if (_activeSelections.isNotEmpty) {
-      HapticFeedback.selectionClick();
-      _notifySelection();
+      if (finalizeSelection) {
+        HapticFeedback.selectionClick();
+        _notifySelection();
+      }
+      return true;
     }
+    return false;
   }
 
   TextRange? _wordBoundaryAt(_BlockVisual visual, int index) {
