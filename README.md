@@ -29,7 +29,7 @@ Add this to your package's `pubspec.yaml` file:
 dependencies:
   mobile_ocr:
     git:
-      url: https://github.com/laurenspriem/mobile_ocr
+      url: https://github.com/ente-io/mobile_ocr
 ```
 
 ## Usage
